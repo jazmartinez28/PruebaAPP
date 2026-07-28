@@ -1,9 +1,10 @@
-import { DefaultTheme, ThemeProvider, DarkTheme as NavDark } from 'expo-router';
+import { DefaultTheme, DarkTheme as NavDark, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { useColorScheme } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import AppTabs from '@/components/app-tabs';
 import { Colors } from '@/constants/theme';
 
 SplashScreen.preventAutoHideAsync();
@@ -17,21 +18,25 @@ export default function RootLayout() {
     SplashScreen.hideAsync().catch(() => {});
   }, []);
 
+  const base = isDark ? NavDark : DefaultTheme;
   const navTheme = {
-    ...(isDark ? NavDark : DefaultTheme),
-    colors: {
-      ...(isDark ? NavDark : DefaultTheme).colors,
-      background: c.background,
-      card: c.surface,
-      text: c.text,
-      primary: c.primary,
-      border: c.border,
-    },
+    ...base,
+    colors: { ...base.colors, background: c.background, card: c.surface, text: c.text, primary: c.primary, border: c.border },
   };
 
   return (
-    <ThemeProvider value={navTheme}>
-      <AppTabs />
-    </ThemeProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <ThemeProvider value={navTheme}>
+          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: c.background } }}>
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="generando" options={{ gestureEnabled: false, animation: 'fade' }} />
+            <Stack.Screen name="viaje/[id]" />
+            <Stack.Screen name="paywall" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="auth" options={{ presentation: 'modal' }} />
+          </Stack>
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

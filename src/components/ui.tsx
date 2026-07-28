@@ -29,14 +29,17 @@ export function Screen({
   scroll = true,
   edges = ['top'],
   padded = true,
+  fullScreen = false,
 }: {
   children: React.ReactNode;
   scroll?: boolean;
   edges?: Edge[];
   padded?: boolean;
+  /** true en rutas que NO tienen la barra de tabs (flujo, viaje, etc.) */
+  fullScreen?: boolean;
 }) {
   const t = useTheme();
-  const bottomPad = TAB_BAR_HEIGHT + Spacing.six;
+  const bottomPad = fullScreen ? Spacing.six : TAB_BAR_HEIGHT + Spacing.six;
 
   const body = scroll ? (
     <ScrollView
