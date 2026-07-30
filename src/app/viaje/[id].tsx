@@ -67,7 +67,7 @@ export default function TripScreen() {
             <IconCircle icon="share-social" onPress={() => setShare(true)} />
           </View>
           <View style={{ paddingHorizontal: Spacing.three, paddingBottom: Spacing.three }}>
-            <Body style={{ fontSize: 40 }}>{city?.emoji}</Body>
+            <Ionicons name="location-outline" size={34} color="#FFFFFF" />
             <Body style={styles.headerTitle}>{trip.cityName}</Body>
             <View style={styles.headerMeta}>
               <View style={styles.metaChip}>
@@ -515,9 +515,7 @@ function ActivityDetailSheet({
 
   return (
     <Sheet visible={!!activity} onClose={onClose} title={p.name}>
-      <CityImage city={city} scrim={0.25} style={styles.detailHero}>
-        <Body style={{ fontSize: 40 }}>{city?.emoji}</Body>
-      </CityImage>
+      <CityImage city={city} scrim={0.25} style={styles.detailHero} />
 
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: Spacing.three, flexWrap: 'wrap' }}>
         <Tag color={t.primary} text={CATEGORY_LABEL[p.categories[0]]} />

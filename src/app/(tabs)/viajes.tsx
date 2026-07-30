@@ -83,7 +83,6 @@ function TripCard({ trip, onOpen }: { trip: Trip; onOpen: () => void }) {
     <Pressable onPress={onOpen}>
       <Card style={{ padding: 0, overflow: 'hidden' }}>
         <CityImage city={city} scrim={0.32} style={styles.banner}>
-          <Body style={{ fontSize: 40 }}>{city?.emoji}</Body>
           <View style={styles.bannerText}>
             <Body style={{ color: '#fff', fontSize: 22, fontWeight: '800' }}>{trip.cityName}</Body>
             <Body style={{ color: '#fff', opacity: 0.95, fontSize: 13 }}>{trip.country}</Body>

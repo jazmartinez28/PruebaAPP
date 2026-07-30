@@ -62,8 +62,8 @@ export default function GenerandoScreen() {
   return (
     <LinearGradient colors={city?.gradient ?? [t.primary, t.primaryStrong]} style={styles.fill}>
       <View style={styles.center}>
-        <View style={styles.emojiWrap}>
-          <Body style={{ fontSize: 64 }}>{city?.emoji ?? '🗺️'}</Body>
+        <View style={styles.iconWrap}>
+          <Ionicons name="map-outline" size={52} color="#FFFFFF" />
         </View>
         <H1 style={{ color: '#fff', textAlign: 'center' }}>Armando tu viaje a {city?.name ?? 'destino'}…</H1>
         <View style={{ height: Spacing.four }} />
@@ -101,7 +101,7 @@ export default function GenerandoScreen() {
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', paddingHorizontal: Spacing.four, gap: Spacing.two },
-  emojiWrap: {
+  iconWrap: {
     width: 110,
     height: 110,
     borderRadius: Radius.pill,

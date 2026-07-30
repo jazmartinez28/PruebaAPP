@@ -93,9 +93,7 @@ export default function CrearScreen() {
                     key={c.id}
                     onPress={() => setDraft({ cityId: c.id, cityName: c.name, country: c.country })}>
                     <View style={[styles.cityCard, { borderColor: sel ? t.primary : t.border, backgroundColor: t.surface }]}>
-                      <CityImage city={c} scrim={0.12} style={styles.cityThumb}>
-                        <Body style={{ fontSize: 26 }}>{c.emoji}</Body>
-                      </CityImage>
+                      <CityImage city={c} scrim={0.08} style={styles.cityThumb} />
                       <View style={{ flex: 1 }}>
                         <Body style={{ fontWeight: '700', fontSize: 16 }}>{c.name}</Body>
                         <Body muted style={{ fontSize: 13 }}>

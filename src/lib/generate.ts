@@ -23,7 +23,8 @@ export function generateItinerary(draft: Draft): Day[] {
   const perDay = pace.perDay;
   const hasDinner = draft.pace !== 'tranquilo';
 
-  const all = placesByCity(draft.cityId).filter((p) => !draft.removedIds?.includes?.(p.id));
+  const removedIds = 'removedIds' in draft && Array.isArray(draft.removedIds) ? draft.removedIds : [];
+  const all = placesByCity(draft.cityId).filter((p) => !removedIds.includes(p.id));
   const sights = all.filter((p) => !p.isMeal);
   const meals = all.filter((p) => p.isMeal);
 
