@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, View } from 'react-native';
 
+import { CityImage } from '@/components/city-image';
 import { Body, Button, Card, H1, H2, Label, Screen } from '@/components/ui';
 import { APP_NAME } from '@/constants/config';
 import { Radius, Spacing } from '@/constants/theme';
@@ -69,7 +69,7 @@ function NextTripCard({ trip, onOpen }: { trip: Trip; onOpen: () => void }) {
     status === 'encurso' ? '¡En viaje ahora!' : status === 'finalizado' ? 'Viaje finalizado' : dLeft === 0 ? '¡Es hoy!' : `Faltan ${dLeft} días`;
 
   return (
-    <LinearGradient colors={city?.gradient ?? [t.primary, t.primaryStrong]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.next}>
+    <CityImage city={city} scrim={0.34} style={styles.next}>
       <View style={styles.nextTop}>
         <View style={styles.countdownPill}>
           <Ionicons name="time" size={13} color="#fff" />
@@ -78,11 +78,11 @@ function NextTripCard({ trip, onOpen }: { trip: Trip; onOpen: () => void }) {
         <Body style={{ fontSize: 34 }}>{city?.emoji}</Body>
       </View>
       <Body style={styles.nextCity}>{trip.cityName}</Body>
-      <Body style={{ color: '#fff', opacity: 0.9 }}>
+      <Body style={{ color: '#fff', opacity: 0.95 }}>
         {fmtRange(trip.startDate, trip.endDate)} · {stats.days} días · {stats.activities} actividades
       </Body>
       <Button title="Ver itinerario" icon="arrow-forward" variant="secondary" size="md" onPress={onOpen} style={{ marginTop: Spacing.three, alignSelf: 'flex-start' }} />
-    </LinearGradient>
+    </CityImage>
   );
 }
 
@@ -92,9 +92,9 @@ function MiniTrip({ trip, onOpen }: { trip: Trip; onOpen: () => void }) {
   return (
     <Pressable onPress={onOpen}>
       <Card style={styles.mini}>
-        <LinearGradient colors={city?.gradient ?? [t.primary, t.primaryStrong]} style={styles.miniThumb}>
+        <CityImage city={city} scrim={0.15} style={styles.miniThumb}>
           <Body style={{ fontSize: 22 }}>{city?.emoji}</Body>
-        </LinearGradient>
+        </CityImage>
         <View style={{ flex: 1 }}>
           <Body style={{ fontWeight: '700' }}>{trip.cityName}</Body>
           <Body muted style={{ fontSize: 13 }}>{fmtRange(trip.startDate, trip.endDate)}</Body>

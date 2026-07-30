@@ -1,10 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Linking, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { CityImage } from '@/components/city-image';
 import { Sheet } from '@/components/sheet';
 import { Body, Button, Card, Chip, H2, Label } from '@/components/ui';
 import { REMOTE_CONFIG } from '@/constants/config';
@@ -60,7 +60,7 @@ export default function TripScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: t.background }}>
       {/* Cabecera */}
-      <LinearGradient colors={city?.gradient ?? [t.primary, t.primaryStrong]} style={styles.header}>
+      <CityImage city={city} scrim={0.4} style={styles.header}>
         <SafeAreaView edges={['top']}>
           <View style={styles.headerTop}>
             <IconCircle icon="chevron-back" onPress={() => router.canGoBack() ? router.back() : router.replace('/viajes')} />
@@ -85,7 +85,7 @@ export default function TripScreen() {
             </View>
           </View>
         </SafeAreaView>
-      </LinearGradient>
+      </CityImage>
 
       {/* Pestañas internas */}
       <View style={[styles.tabs, { backgroundColor: t.surface, borderBottomColor: t.border }]}>
@@ -515,9 +515,9 @@ function ActivityDetailSheet({
 
   return (
     <Sheet visible={!!activity} onClose={onClose} title={p.name}>
-      <LinearGradient colors={city?.gradient ?? [t.primary, t.primaryStrong]} style={styles.detailHero}>
+      <CityImage city={city} scrim={0.25} style={styles.detailHero}>
         <Body style={{ fontSize: 40 }}>{city?.emoji}</Body>
-      </LinearGradient>
+      </CityImage>
 
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: Spacing.three, flexWrap: 'wrap' }}>
         <Tag color={t.primary} text={CATEGORY_LABEL[p.categories[0]]} />

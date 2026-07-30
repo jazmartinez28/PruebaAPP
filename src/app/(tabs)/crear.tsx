@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
@@ -7,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { TAB_BAR_HEIGHT } from '@/components/app-tabs';
 import { Calendar } from '@/components/calendar';
+import { CityImage } from '@/components/city-image';
 import { ProgressBar, TopBar } from '@/components/flow-ui';
 import { Body, Button, Card, Chip, H1, Label } from '@/components/ui';
 import { Radius, Spacing } from '@/constants/theme';
@@ -93,9 +93,9 @@ export default function CrearScreen() {
                     key={c.id}
                     onPress={() => setDraft({ cityId: c.id, cityName: c.name, country: c.country })}>
                     <View style={[styles.cityCard, { borderColor: sel ? t.primary : t.border, backgroundColor: t.surface }]}>
-                      <LinearGradient colors={c.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.cityThumb}>
+                      <CityImage city={c} scrim={0.12} style={styles.cityThumb}>
                         <Body style={{ fontSize: 26 }}>{c.emoji}</Body>
-                      </LinearGradient>
+                      </CityImage>
                       <View style={{ flex: 1 }}>
                         <Body style={{ fontWeight: '700', fontSize: 16 }}>{c.name}</Body>
                         <Body muted style={{ fontSize: 13 }}>

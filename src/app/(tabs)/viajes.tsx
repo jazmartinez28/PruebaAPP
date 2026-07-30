@@ -1,9 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
+import { CityImage } from '@/components/city-image';
 import { Body, Button, Card, H1, Screen } from '@/components/ui';
 import { Radius, Spacing } from '@/constants/theme';
 import { cityById } from '@/data/cities';
@@ -82,13 +82,13 @@ function TripCard({ trip, onOpen }: { trip: Trip; onOpen: () => void }) {
   return (
     <Pressable onPress={onOpen}>
       <Card style={{ padding: 0, overflow: 'hidden' }}>
-        <LinearGradient colors={city?.gradient ?? [t.primary, t.primaryStrong]} style={styles.banner}>
+        <CityImage city={city} scrim={0.32} style={styles.banner}>
           <Body style={{ fontSize: 40 }}>{city?.emoji}</Body>
           <View style={styles.bannerText}>
             <Body style={{ color: '#fff', fontSize: 22, fontWeight: '800' }}>{trip.cityName}</Body>
-            <Body style={{ color: '#fff', opacity: 0.9, fontSize: 13 }}>{trip.country}</Body>
+            <Body style={{ color: '#fff', opacity: 0.95, fontSize: 13 }}>{trip.country}</Body>
           </View>
-        </LinearGradient>
+        </CityImage>
         <View style={styles.cardBody}>
           <Info icon="calendar" text={fmtRange(trip.startDate, trip.endDate)} />
           <Info icon="today" text={`${stats.days} días`} />

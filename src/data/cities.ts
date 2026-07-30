@@ -6,15 +6,18 @@ export type City = {
   lng: number;
   gradient: [string, string];
   emoji: string;
+  image: string;
 };
 
+const IMG = (id: string) => `https://images.unsplash.com/photo-${id}?auto=format&fit=crop&w=900&q=70`;
+
 export const CITIES: City[] = [
-  { id: 'roma', name: 'Roma', country: 'Italia', lat: 41.9028, lng: 12.4964, gradient: ['#FF8A5B', '#F2542D'], emoji: '🏛️' },
-  { id: 'paris', name: 'París', country: 'Francia', lat: 48.8566, lng: 2.3522, gradient: ['#6A85F1', '#3B5BDB'], emoji: '🗼' },
-  { id: 'barcelona', name: 'Barcelona', country: 'España', lat: 41.3874, lng: 2.1686, gradient: ['#F6A821', '#E8590C'], emoji: '⛪' },
-  { id: 'buenosaires', name: 'Buenos Aires', country: 'Argentina', lat: -34.6037, lng: -58.3816, gradient: ['#4DD4C0', '#1098AD'], emoji: '💃' },
-  { id: 'nuevayork', name: 'Nueva York', country: 'Estados Unidos', lat: 40.7128, lng: -74.006, gradient: ['#5C7CFA', '#3B5BDB'], emoji: '🗽' },
-  { id: 'tokio', name: 'Tokio', country: 'Japón', lat: 35.6762, lng: 139.6503, gradient: ['#FF6B9D', '#C9184A'], emoji: '🗾' },
+  { id: 'roma', name: 'Roma', country: 'Italia', lat: 41.9028, lng: 12.4964, gradient: ['#FF8A5B', '#F2542D'], emoji: '🏛️', image: IMG('1552832230-c0197dd311b5') },
+  { id: 'paris', name: 'París', country: 'Francia', lat: 48.8566, lng: 2.3522, gradient: ['#6A85F1', '#3B5BDB'], emoji: '🗼', image: IMG('1502602898657-3e91760cbb34') },
+  { id: 'barcelona', name: 'Barcelona', country: 'España', lat: 41.3874, lng: 2.1686, gradient: ['#F6A821', '#E8590C'], emoji: '⛪', image: IMG('1583422409516-2895a77efded') },
+  { id: 'buenosaires', name: 'Buenos Aires', country: 'Argentina', lat: -34.6037, lng: -58.3816, gradient: ['#4DD4C0', '#1098AD'], emoji: '💃', image: IMG('1612294037637-ec328d0e075e') },
+  { id: 'nuevayork', name: 'Nueva York', country: 'Estados Unidos', lat: 40.7128, lng: -74.006, gradient: ['#5C7CFA', '#3B5BDB'], emoji: '🗽', image: IMG('1496442226666-8d4d0e62e6e9') },
+  { id: 'tokio', name: 'Tokio', country: 'Japón', lat: 35.6762, lng: 139.6503, gradient: ['#FF6B9D', '#C9184A'], emoji: '🗾', image: IMG('1540959733332-eab4deabeeaf') },
 ];
 
 export const cityById = (id: string) => CITIES.find((c) => c.id === id);
