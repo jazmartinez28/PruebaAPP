@@ -13,8 +13,8 @@ import {
 } from 'react-native';
 
 import { CityImage } from '@/components/city-image';
+import { BrandMark } from '@/components/brand-mark';
 import { Body, Button, Card, H1, H2, Label, Screen } from '@/components/ui';
-import { APP_NAME } from '@/constants/config';
 import { Radius, Spacing } from '@/constants/theme';
 import { CITIES, cityById, type City } from '@/data/cities';
 import { useTheme } from '@/hooks/use-theme';
@@ -25,10 +25,10 @@ import { useStore } from '@/store/useStore';
 import type { Trip } from '@/types';
 
 const MOODS = [
-  { id: 'iconos', label: 'Primera vez', icon: 'camera-outline', cityIds: ['roma', 'paris', 'nuevayork'] },
-  { id: 'sabores', label: 'Comer increíble', icon: 'restaurant-outline', cityIds: ['roma', 'tokio', 'buenosaires'] },
-  { id: 'arte', label: 'Arte y diseño', icon: 'color-palette-outline', cityIds: ['paris', 'barcelona', 'tokio'] },
-  { id: 'ritmo', label: 'Ciudad con ritmo', icon: 'musical-notes-outline', cityIds: ['buenosaires', 'nuevayork', 'barcelona'] },
+  { id: 'iconos', label: 'Primera vez', icon: 'camera-outline', interests: ['iconico', 'historia', 'arquitectura'], pace: 'equilibrado', cityIds: ['roma', 'paris', 'nuevayork'] },
+  { id: 'sabores', label: 'Comer increíble', icon: 'restaurant-outline', interests: ['gastronomia', 'local'], pace: 'tranquilo', cityIds: ['roma', 'tokio', 'buenosaires'] },
+  { id: 'arte', label: 'Arte y diseño', icon: 'color-palette-outline', interests: ['arte', 'museos', 'arquitectura'], pace: 'equilibrado', cityIds: ['paris', 'barcelona', 'tokio'] },
+  { id: 'ritmo', label: 'Ciudad con ritmo', icon: 'musical-notes-outline', interests: ['vidanocturna', 'musica', 'local'], pace: 'intenso', cityIds: ['buenosaires', 'nuevayork', 'barcelona'] },
 ] as const;
 
 const EDITORIAL = [
@@ -55,6 +55,7 @@ export default function HomeScreen() {
   const trips = useStore((s) => s.trips);
   const user = useStore((s) => s.user);
   const setDraft = useStore((s) => s.setDraft);
+  const loadCityCatalog = useStore((s) => s.loadCityCatalog);
   const [mood, setMood] = useState<(typeof MOODS)[number]['id']>('iconos');
   const entrance = useRef(new Animated.Value(0)).current;
 
@@ -85,8 +86,23 @@ export default function HomeScreen() {
 
   const startWithCity = async (city: City) => {
     await Haptics.selectionAsync();
-    setDraft({ cityId: city.id, cityName: city.name, country: city.country });
+    setDraft({
+      cityId: city.id,
+      cityName: city.name,
+      country: city.country,
+      interests: [...selectedMood.interests],
+      pace: selectedMood.pace,
+    });
+    void loadCityCatalog(city.id);
     router.push('/crear');
+  };
+
+  const openTripTool = (tab: string, action?: string) => {
+    if (!next) return;
+    router.push({
+      pathname: '/viaje/[id]',
+      params: { id: next.id, tab, ...(action ? { action } : {}) },
+    });
   };
 
   const surpriseMe = () => {
@@ -114,7 +130,7 @@ export default function HomeScreen() {
         ]}>
         <View style={styles.header}>
           <View>
-            <Label style={{ color: t.primary }}>{APP_NAME}</Label>
+            <BrandMark />
             <H1 style={styles.greeting}>
               {user ? `Hola, ${user.name.split(' ')[0]}` : 'Tu próximo viaje empieza acá'}
             </H1>
@@ -137,6 +153,16 @@ export default function HomeScreen() {
           <NextTripCard trip={next} onOpen={() => router.push(`/viaje/${next.id}`)} />
         ) : (
           <DiscoveryHero onCreate={() => router.push('/crear')} onSurprise={surpriseMe} />
+        )}
+
+        {next && (
+          <TripCommandCenter
+            trip={next}
+            onPlan={() => openTripTool('itinerario')}
+            onMap={() => openTripTool('mapa')}
+            onHotel={() => openTripTool('resumen', 'hotel')}
+            onTickets={() => openTripTool('tickets')}
+          />
         )}
 
         <SectionHeader
@@ -408,6 +434,101 @@ function SectionHeader({
   );
 }
 
+function TripCommandCenter({
+  trip,
+  onPlan,
+  onMap,
+  onHotel,
+  onTickets,
+}: {
+  trip: Trip;
+  onPlan: () => void;
+  onMap: () => void;
+  onHotel: () => void;
+  onTickets: () => void;
+}) {
+  const t = useTheme();
+  const today = trip.days.find((item) => item.date === new Date().toISOString().slice(0, 10));
+  const ticketCount = trip.tickets?.length ?? 0;
+  const tools = [
+    {
+      id: 'plan',
+      icon: 'today-outline',
+      eyebrow: today ? 'Ahora' : 'Itinerario',
+      title: today ? `${today.activities.length} paradas hoy` : 'Ver el día completo',
+      onPress: onPlan,
+      color: t.primary,
+      bg: t.primarySoft,
+    },
+    {
+      id: 'map',
+      icon: 'navigate-outline',
+      eyebrow: 'Ruta',
+      title: 'Mapa y traslados',
+      onPress: onMap,
+      color: t.secondary,
+      bg: t.secondarySoft,
+    },
+    {
+      id: 'hotel',
+      icon: 'bed-outline',
+      eyebrow: 'Tu base',
+      title: trip.accommodation?.name ?? 'Agregar alojamiento',
+      onPress: onHotel,
+      color: t.text,
+      bg: t.backgroundElement,
+    },
+    {
+      id: 'tickets',
+      icon: 'ticket-outline',
+      eyebrow: `${ticketCount} ${ticketCount === 1 ? 'entrada' : 'entradas'}`,
+      title: ticketCount ? 'Abrir billetera' : 'Guardar tickets',
+      onPress: onTickets,
+      color: t.warning,
+      bg: `${t.warning}18`,
+    },
+  ];
+
+  return (
+    <View style={styles.commandSection}>
+      <View style={styles.commandHeading}>
+        <View>
+          <Label style={{ color: t.secondary }}>CENTRO DE VIAJE</Label>
+          <H2>Todo lo importante, a un toque</H2>
+        </View>
+        <View style={[styles.liveBadge, { backgroundColor: t.secondarySoft }]}>
+          <View style={[styles.liveMiniDot, { backgroundColor: t.secondary }]} />
+          <Body style={{ color: t.secondary, fontSize: 11, fontWeight: '800' }}>LISTO</Body>
+        </View>
+      </View>
+      <View style={styles.commandGrid}>
+        {tools.map((tool) => (
+          <Pressable
+            key={tool.id}
+            accessibilityRole="button"
+            onPress={tool.onPress}
+            style={({ pressed }) => [
+              styles.commandCard,
+              { backgroundColor: tool.bg, borderColor: `${tool.color}20` },
+              pressed && styles.commandPressed,
+            ]}>
+            <View style={styles.commandTop}>
+              <Ionicons name={tool.icon as any} size={22} color={tool.color} />
+              <Ionicons name="arrow-up-outline" size={17} color={tool.color} style={{ transform: [{ rotate: '45deg' }] }} />
+            </View>
+            <View>
+              <Label style={{ color: tool.color, fontSize: 10 }}>{tool.eyebrow}</Label>
+              <Body numberOfLines={2} style={{ fontWeight: '900', marginTop: 3, lineHeight: 18 }}>
+                {tool.title}
+              </Body>
+            </View>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 function LivePlanPreview() {
   const t = useTheme();
   const stops = [
@@ -524,6 +645,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
+  commandSection: { paddingHorizontal: Spacing.three, gap: Spacing.three },
+  commandHeading: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12 },
+  liveBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, paddingVertical: 6, borderRadius: Radius.pill },
+  liveMiniDot: { width: 6, height: 6, borderRadius: 3 },
+  commandGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  commandCard: {
+    width: '48%',
+    flexGrow: 1,
+    minHeight: 128,
+    borderRadius: 19,
+    borderWidth: 1,
+    padding: 15,
+    justifyContent: 'space-between',
+  },
+  commandTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  commandPressed: { opacity: 0.82, transform: [{ scale: 0.98 }] },
   textAction: { minHeight: 44, flexDirection: 'row', alignItems: 'center' },
   moodRail: { paddingHorizontal: Spacing.three, gap: 9 },
   mood: {

@@ -100,5 +100,24 @@ export const PLACES: Place[] = [
   { id: 'tk-omoide', cityId: 'tokio', name: 'Omoide Yokocho', categories: ['gastronomia', 'vidanocturna', 'local'], lat: 35.6939, lng: 139.6994, zone: 'Shinjuku', durationMin: 75, price: 2, rating: 4.5, desc: 'Callejón de yakitori y farolitos.', reason: 'Cena con onda nocturna.', isMeal: true },
 ];
 
-export const placesByCity = (cityId: string) => PLACES.filter((p) => p.cityId === cityId);
-export const placeById = (id: string) => PLACES.find((p) => p.id === id);
+let runtimePlaces: Place[] = [];
+
+export function setRuntimePlaces(places: Place[]) {
+  runtimePlaces = places;
+}
+
+export function mergeRuntimePlaces(places: Place[]) {
+  const byId = new Map(runtimePlaces.map((place) => [place.id, place]));
+  places.forEach((place) => byId.set(place.id, place));
+  runtimePlaces = Array.from(byId.values());
+}
+
+export const placesByCity = (cityId: string) => {
+  const byId = new Map<string, Place>();
+  PLACES.filter((place) => place.cityId === cityId).forEach((place) => byId.set(place.id, place));
+  runtimePlaces.filter((place) => place.cityId === cityId).forEach((place) => byId.set(place.id, place));
+  return Array.from(byId.values());
+};
+
+export const placeById = (id: string) =>
+  PLACES.find((place) => place.id === id) ?? runtimePlaces.find((place) => place.id === id);

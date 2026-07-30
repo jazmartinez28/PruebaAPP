@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { TAB_BAR_HEIGHT } from '@/components/app-tabs';
@@ -11,11 +11,15 @@ import { ProgressBar, TopBar } from '@/components/flow-ui';
 import { Body, Button, Card, Chip, H1, Label } from '@/components/ui';
 import { Radius, Spacing } from '@/constants/theme';
 import { BUDGETS, CATEGORY_LABEL, INTERESTS, PACES } from '@/data/catalog';
-import { CITIES } from '@/data/cities';
+import { CITIES, cityById } from '@/data/cities';
 import { placesByCity } from '@/data/places';
 import { useTheme } from '@/hooks/use-theme';
 import { daysInclusive, fmtRange } from '@/lib/dates';
 import { centroid } from '@/lib/geo';
+import {
+  geocodeAccommodation,
+  type GeocodedAccommodation,
+} from '@/lib/place-provider';
 import { useStore } from '@/store/useStore';
 import type { Accommodation, Budget } from '@/types';
 
@@ -29,12 +33,19 @@ export default function CrearScreen() {
   const toggleInterest = useStore((s) => s.toggleInterest);
   const toggleMustSee = useStore((s) => s.toggleMustSee);
   const setAccommodation = useStore((s) => s.setAccommodation);
+  const loadCityCatalog = useStore((s) => s.loadCityCatalog);
+  const catalogStatus = useStore((s) => (s.draft.cityId ? s.catalogStatus[s.draft.cityId] : 'idle'));
+  useStore((s) => s.externalPlaces);
 
   const [step, setStep] = useState(0);
   const [query, setQuery] = useState('');
   const [accChoice, setAccChoice] = useState<'yes' | 'no' | 'later' | null>(
     draft.accommodation ? 'yes' : null,
   );
+  const [hotelQuery, setHotelQuery] = useState(draft.accommodation?.address ?? '');
+  const [hotelResults, setHotelResults] = useState<GeocodedAccommodation[]>([]);
+  const [hotelLoading, setHotelLoading] = useState(false);
+  const [hotelError, setHotelError] = useState<string | null>(null);
 
   const cityPlaces = draft.cityId ? placesByCity(draft.cityId) : [];
   const zones = useMemo(() => Array.from(new Set(cityPlaces.map((p) => p.zone))), [draft.cityId]);
@@ -45,6 +56,7 @@ export default function CrearScreen() {
   const canContinue = () => {
     if (step === 0) return !!draft.cityId;
     if (step === 1) return !!draft.startDate && !!draft.endDate;
+    if (step === 2 && accChoice === 'yes') return Boolean(draft.accommodation);
     if (step === 3) return draft.interests.length > 0;
     return true;
   };
@@ -60,6 +72,25 @@ export default function CrearScreen() {
     const c = centroid(pts);
     const acc: Accommodation = { name: `Zona ${zone}`, lat: c.lat, lng: c.lng, zone };
     setAccommodation(acc);
+  };
+
+  const searchHotel = async () => {
+    const city = draft.cityId ? cityById(draft.cityId) : undefined;
+    if (!city || hotelQuery.trim().length < 3) {
+      setHotelError('Escribí el nombre del hotel o una dirección completa.');
+      return;
+    }
+    setHotelLoading(true);
+    setHotelError(null);
+    try {
+      const results = await geocodeAccommodation(hotelQuery.trim(), city);
+      setHotelResults(results);
+      if (!results.length) setHotelError('No encontramos esa dirección. Probá agregando calle y número.');
+    } catch {
+      setHotelError('No pudimos buscar ahora. Podés elegir el barrio como alternativa.');
+    } finally {
+      setHotelLoading(false);
+    }
   };
 
   return (
@@ -91,7 +122,10 @@ export default function CrearScreen() {
                 return (
                   <Pressable
                     key={c.id}
-                    onPress={() => setDraft({ cityId: c.id, cityName: c.name, country: c.country })}>
+                    onPress={() => {
+                      setDraft({ cityId: c.id, cityName: c.name, country: c.country });
+                      void loadCityCatalog(c.id);
+                    }}>
                     <View style={[styles.cityCard, { borderColor: sel ? t.primary : t.border, backgroundColor: t.surface }]}>
                       <CityImage city={c} scrim={0.08} style={styles.cityThumb} />
                       <View style={{ flex: 1 }}>
@@ -162,8 +196,74 @@ export default function CrearScreen() {
               );
             })}
             {accChoice === 'yes' && (
-              <View style={{ gap: Spacing.two }}>
-                <Label>Elegí la zona</Label>
+              <View style={{ gap: Spacing.three }}>
+                <View style={{ gap: Spacing.two }}>
+                  <Label>Hotel o dirección</Label>
+                  <View style={[styles.hotelSearch, { backgroundColor: t.surface, borderColor: hotelError ? t.error : t.border }]}>
+                    <Ionicons name="bed-outline" size={20} color={t.textSecondary} />
+                    <TextInput
+                      value={hotelQuery}
+                      onChangeText={setHotelQuery}
+                      onSubmitEditing={searchHotel}
+                      returnKeyType="search"
+                      placeholder="Ej. Via Nazionale 22 o Hotel Artemide"
+                      placeholderTextColor={t.textSecondary}
+                      style={{ flex: 1, color: t.text, fontSize: 15 }}
+                    />
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Buscar alojamiento"
+                      onPress={searchHotel}
+                      style={[styles.searchHotelButton, { backgroundColor: t.primary }]}>
+                      {hotelLoading ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <Ionicons name="search" size={19} color="#fff" />
+                      )}
+                    </Pressable>
+                  </View>
+                  {hotelError && <Body style={{ color: t.error, fontSize: 13 }}>{hotelError}</Body>}
+                </View>
+
+                {hotelResults.map((result) => {
+                  const selected =
+                    draft.accommodation?.lat === result.lat && draft.accommodation?.lng === result.lng;
+                  return (
+                    <Pressable
+                      key={`${result.lat}-${result.lng}`}
+                      onPress={() =>
+                        setAccommodation({
+                          name: result.name,
+                          address: result.address,
+                          lat: result.lat,
+                          lng: result.lng,
+                        })
+                      }>
+                      <Card style={[styles.hotelResult, selected && { borderColor: t.secondary, borderWidth: 2 }]}>
+                        <Ionicons name="location-outline" size={20} color={selected ? t.secondary : t.textSecondary} />
+                        <View style={{ flex: 1 }}>
+                          <Body style={{ fontWeight: '700' }}>{result.name}</Body>
+                          <Body muted numberOfLines={2} style={{ fontSize: 12 }}>{result.address}</Body>
+                        </View>
+                        {selected && <Ionicons name="checkmark-circle" size={22} color={t.secondary} />}
+                      </Card>
+                    </Pressable>
+                  );
+                })}
+
+                {draft.accommodation && (
+                  <View style={[styles.hotelConfirmed, { backgroundColor: t.secondarySoft }]}>
+                    <Ionicons name="checkmark-circle" size={20} color={t.secondary} />
+                    <View style={{ flex: 1 }}>
+                      <Body style={{ color: t.secondary, fontWeight: '800' }}>Base del viaje confirmada</Body>
+                      <Body style={{ color: t.secondary, fontSize: 12 }} numberOfLines={2}>
+                        {draft.accommodation.address ?? draft.accommodation.name}
+                      </Body>
+                    </View>
+                  </View>
+                )}
+
+                <Label>O elegí un barrio aproximado</Label>
                 <View style={styles.chips}>
                   {zones.map((z) => (
                     <Chip key={z} label={z} selected={draft.accommodation?.zone === z} onPress={() => chooseZone(z)} />
@@ -248,6 +348,18 @@ export default function CrearScreen() {
           <>
             <H1>¿Algún lugar imprescindible?</H1>
             <Body muted>Marcá los que no te querés perder. Los vamos a respetar siempre. (Opcional)</Body>
+            <View style={[styles.catalogInfo, { backgroundColor: t.secondarySoft }]}>
+              <Ionicons
+                name={catalogStatus === 'loading' ? 'sync-outline' : 'location-outline'}
+                size={19}
+                color={t.secondary}
+              />
+              <Body style={{ flex: 1, color: t.secondary, fontSize: 12, fontWeight: '700' }}>
+                {catalogStatus === 'loading'
+                  ? 'Descubriendo más lugares de la ciudad…'
+                  : `${cityPlaces.length} lugares disponibles para personalizar tu viaje`}
+              </Body>
+            </View>
             <View style={{ gap: Spacing.two }}>
               {cityPlaces
                 .filter((p) => !p.isMeal)
@@ -339,6 +451,14 @@ function ReviewStep({ onEdit }: { onEdit: (step: number) => void }) {
 }
 
 const styles = StyleSheet.create({
+  catalogInfo: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    borderRadius: Radius.md,
+  },
   search: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, borderWidth: 1, borderRadius: Radius.pill, paddingHorizontal: Spacing.three, paddingVertical: 12 },
   cityCard: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three, borderWidth: 1.5, borderRadius: Radius.lg, padding: Spacing.two, paddingRight: Spacing.three },
   cityThumb: { width: 56, height: 56, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
@@ -350,4 +470,29 @@ const styles = StyleSheet.create({
   mustRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three, paddingVertical: Spacing.two },
   reviewRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, padding: Spacing.three },
   footer: { padding: Spacing.three, paddingTop: Spacing.two, borderTopWidth: 1, marginBottom: TAB_BAR_HEIGHT },
+  hotelSearch: {
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    borderWidth: 1.5,
+    borderRadius: Radius.md,
+    paddingLeft: Spacing.three,
+    paddingRight: 6,
+  },
+  searchHotelButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hotelResult: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  hotelConfirmed: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.two,
+    padding: Spacing.three,
+    borderRadius: Radius.md,
+  },
 });

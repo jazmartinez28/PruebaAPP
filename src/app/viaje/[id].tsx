@@ -6,6 +6,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { CityImage } from '@/components/city-image';
 import { Sheet } from '@/components/sheet';
+import { AccommodationSheet, TicketEditorSheet, TransportSheet } from '@/components/trip-tools';
 import { Body, Button, Card, Chip, H2, Label } from '@/components/ui';
 import { REMOTE_CONFIG } from '@/constants/config';
 import { Radius, Spacing } from '@/constants/theme';
@@ -13,30 +14,48 @@ import { CATEGORY_LABEL, PRICE_LABEL } from '@/data/catalog';
 import { cityById } from '@/data/cities';
 import { placeById, placesByCity } from '@/data/places';
 import { useTheme } from '@/hooks/use-theme';
+import { purchaseUrlFor } from '@/lib/commerce';
 import { fmtDate, fmtRange } from '@/lib/dates';
 import { fmtDist, legBetween, minToHHMM } from '@/lib/geo';
 import { tripStats } from '@/lib/generate';
+import { recommendedTransport } from '@/lib/transport';
 import { getAlternatives, tripStatusOf, type AltFilter } from '@/lib/trip';
 import { RouteMap, type MapStop } from '@/components/route-map';
 import { useStore } from '@/store/useStore';
-import type { Activity, Trip } from '@/types';
+import type { Activity, Place, Trip } from '@/types';
 
-type Tab = 'resumen' | 'itinerario' | 'mapa' | 'lugares';
+type Tab = 'resumen' | 'itinerario' | 'mapa' | 'tickets' | 'lugares';
 const STATUS_LABEL = { proximo: 'Próximo', encurso: 'En curso', finalizado: 'Finalizado' } as const;
+const TAB_LABEL: Record<Tab, string> = {
+  resumen: 'Resumen',
+  itinerario: 'Plan',
+  mapa: 'Mapa',
+  tickets: 'Tickets',
+  lugares: 'Lugares',
+};
 
 export default function TripScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, tab: initialTab, action } = useLocalSearchParams<{
+    id: string;
+    tab?: string;
+    action?: string;
+  }>();
   const trip = useStore((s) => s.trips.find((t) => t.id === id));
   const t = useTheme();
   const router = useRouter();
 
-  const [tab, setTab] = useState<Tab>('resumen');
+  const [tab, setTab] = useState<Tab>(
+    initialTab && initialTab in TAB_LABEL ? (initialTab as Tab) : 'resumen',
+  );
   const [day, setDay] = useState(0);
   const [detailAct, setDetailAct] = useState<Activity | null>(null);
   const [replaceAct, setReplaceAct] = useState<Activity | null>(null);
   const [moveAct, setMoveAct] = useState<Activity | null>(null);
   const [addDay, setAddDay] = useState<number | null>(null);
   const [share, setShare] = useState(false);
+  const [transportLeg, setTransportLeg] = useState<{ from: Place; to: Place } | null>(null);
+  const [ticketActivity, setTicketActivity] = useState<Activity | null>(null);
+  const [editHotel, setEditHotel] = useState(action === 'hotel');
   const [toast, setToast] = useState<{ msg: string; undo?: boolean } | null>(null);
 
   if (!trip) {
@@ -89,12 +108,12 @@ export default function TripScreen() {
 
       {/* Pestañas internas */}
       <View style={[styles.tabs, { backgroundColor: t.surface, borderBottomColor: t.border }]}>
-        {(['resumen', 'itinerario', 'mapa', 'lugares'] as Tab[]).map((k) => {
+        {(['resumen', 'itinerario', 'mapa', 'tickets', 'lugares'] as Tab[]).map((k) => {
           const on = tab === k;
           return (
             <Pressable key={k} onPress={() => setTab(k)} style={styles.tab}>
               <Body style={{ color: on ? t.primary : t.textSecondary, fontWeight: on ? '800' : '600', fontSize: 14 }}>
-                {k[0].toUpperCase() + k.slice(1)}
+                {TAB_LABEL[k]}
               </Body>
               {on && <View style={[styles.tabInd, { backgroundColor: t.primary }]} />}
             </Pressable>
@@ -103,7 +122,14 @@ export default function TripScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: Spacing.three, gap: Spacing.three, paddingBottom: 120 }}>
-        {tab === 'resumen' && <ResumenTab trip={trip} onOpenDay={(d) => { setDay(d); setTab('itinerario'); }} />}
+        {tab === 'resumen' && (
+          <ResumenTab
+            trip={trip}
+            onOpenDay={(d) => { setDay(d); setTab('itinerario'); }}
+            onEditHotel={() => setEditHotel(true)}
+            onOpenTickets={() => setTab('tickets')}
+          />
+        )}
         {tab === 'itinerario' && (
           <ItinerarioTab
             trip={trip}
@@ -111,9 +137,12 @@ export default function TripScreen() {
             setDay={setDay}
             onActivity={setDetailAct}
             onAdd={(d) => setAddDay(d)}
+            onTransport={(from, to) => setTransportLeg({ from, to })}
+            onToast={showToast}
           />
         )}
         {tab === 'mapa' && <MapaTab trip={trip} day={day} setDay={setDay} onActivity={setDetailAct} />}
+        {tab === 'tickets' && <TicketsTab trip={trip} onOpenActivity={setDetailAct} />}
         {tab === 'lugares' && <LugaresTab trip={trip} onActivity={setDetailAct} />}
       </ScrollView>
 
@@ -127,6 +156,7 @@ export default function TripScreen() {
         onClose={() => setDetailAct(null)}
         onReplace={(a) => { setDetailAct(null); setReplaceAct(a); }}
         onMove={(a) => { setDetailAct(null); setMoveAct(a); }}
+        onTicket={(a) => { setDetailAct(null); setTicketActivity(a); }}
         onToast={showToast}
       />
 
@@ -156,13 +186,40 @@ export default function TripScreen() {
 
       {/* Compartir */}
       <ShareSheet trip={trip} visible={share} onClose={() => setShare(false)} onToast={showToast} />
+      <TransportSheet
+        cityId={trip.cityId}
+        leg={transportLeg}
+        onClose={() => setTransportLeg(null)}
+      />
+      <TicketEditorSheet
+        trip={trip}
+        activity={ticketActivity}
+        onClose={() => setTicketActivity(null)}
+        onSaved={() => { setTicketActivity(null); setTab('tickets'); showToast('Ticket guardado'); }}
+      />
+      <AccommodationSheet
+        trip={trip}
+        visible={editHotel}
+        onClose={() => setEditHotel(false)}
+        onSaved={() => { setEditHotel(false); showToast('Alojamiento actualizado'); }}
+      />
     </View>
   );
 }
 
 /* ============================= Resumen ============================= */
 
-function ResumenTab({ trip, onOpenDay }: { trip: Trip; onOpenDay: (d: number) => void }) {
+function ResumenTab({
+  trip,
+  onOpenDay,
+  onEditHotel,
+  onOpenTickets,
+}: {
+  trip: Trip;
+  onOpenDay: (d: number) => void;
+  onEditHotel: () => void;
+  onOpenTickets: () => void;
+}) {
   const t = useTheme();
   const stats = tripStats(trip.days);
 
@@ -198,6 +255,35 @@ function ResumenTab({ trip, onOpenDay }: { trip: Trip; onOpenDay: (d: number) =>
         <StatBox icon="flag" label="Actividades" value={String(stats.activities)} />
         <StatBox icon="git-network" label="Zonas" value={String(stats.zones)} />
         <StatBox icon="walk" label="Recorrido" value={fmtDist(totalMeters)} />
+      </View>
+
+      <View style={styles.tripTools}>
+        <Pressable onPress={onEditHotel} style={({ pressed }) => [styles.tripTool, pressed && { opacity: 0.75 }]}>
+          <View style={[styles.tripToolIcon, { backgroundColor: t.secondarySoft }]}>
+            <Ionicons name="bed-outline" size={21} color={t.secondary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Body style={{ fontWeight: '800' }}>{acc ? 'Base del viaje' : 'Agregar alojamiento'}</Body>
+            <Body muted numberOfLines={1} style={{ fontSize: 12 }}>
+              {acc?.address ?? acc?.name ?? 'Mejora rutas y horarios de salida'}
+            </Body>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={t.textSecondary} />
+        </Pressable>
+        <Pressable onPress={onOpenTickets} style={({ pressed }) => [styles.tripTool, pressed && { opacity: 0.75 }]}>
+          <View style={[styles.tripToolIcon, { backgroundColor: t.primarySoft }]}>
+            <Ionicons name="ticket-outline" size={21} color={t.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Body style={{ fontWeight: '800' }}>Tickets y reservas</Body>
+            <Body muted style={{ fontSize: 12 }}>
+              {(trip.tickets ?? []).length
+                ? `${trip.tickets.length} guardados para este viaje`
+                : 'Guardalos por actividad y encontralos rápido'}
+            </Body>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={t.textSecondary} />
+        </Pressable>
       </View>
 
       <View style={{ gap: Spacing.two }}>
@@ -251,14 +337,19 @@ function ItinerarioTab({
   setDay,
   onActivity,
   onAdd,
+  onTransport,
+  onToast,
 }: {
   trip: Trip;
   day: number;
   setDay: (d: number) => void;
   onActivity: (a: Activity) => void;
   onAdd: (d: number) => void;
+  onTransport: (from: Place, to: Place) => void;
+  onToast: (message: string, undo?: boolean) => void;
 }) {
   const t = useTheme();
+  const moveWithinDay = useStore((s) => s.moveActivityWithinDay);
   const d = trip.days[day];
 
   return (
@@ -281,17 +372,41 @@ function ItinerarioTab({
               const leg = next ? (() => { const np = placeById(next.placeId); return np ? legBetween(p, np) : null; })() : null;
               return (
                 <View key={a.id}>
-                  <TimelineActivity activity={a} onPress={() => onActivity(a)} />
+                  <TimelineActivity
+                    activity={a}
+                    index={i}
+                    total={d.activities.length}
+                    ticketCount={(trip.tickets ?? []).filter((ticket) => ticket.activityId === a.id).length}
+                    onPress={() => onActivity(a)}
+                    onMove={(delta) => {
+                      moveWithinDay(trip.id, a.id, delta);
+                      onToast(`Actividad movida ${delta < 0 ? 'más temprano' : 'más tarde'}`, true);
+                    }}
+                  />
                   {leg && (
-                    <View style={styles.legRow}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Ver opciones para ir de ${p.name} a ${placeById(next.placeId)?.name ?? 'la próxima actividad'}`}
+                      onPress={() => {
+                        const nextPlace = placeById(next.placeId);
+                        if (nextPlace) onTransport(p, nextPlace);
+                      }}
+                      style={({ pressed }) => [styles.legRow, pressed && { opacity: 0.72 }]}>
                       <View style={{ width: 52, alignItems: 'center' }}>
                         <View style={[styles.legLine, { backgroundColor: t.border }]} />
                       </View>
                       <View style={[styles.legPill, { backgroundColor: t.secondarySoft }]}>
-                        <Ionicons name={leg.mode === 'walk' ? 'walk' : 'bus'} size={13} color={t.secondary} />
-                        <Body style={{ fontSize: 12, color: t.secondary, fontWeight: '600' }}>{leg.label}</Body>
+                        <Ionicons
+                          name={recommendedTransport(trip.cityId, p, placeById(next.placeId)!).icon}
+                          size={14}
+                          color={t.secondary}
+                        />
+                        <Body style={{ fontSize: 12, color: t.secondary, fontWeight: '700' }}>
+                          {recommendedTransport(trip.cityId, p, placeById(next.placeId)!).label} · {leg.label}
+                        </Body>
+                        <Ionicons name="chevron-forward" size={13} color={t.secondary} />
                       </View>
-                    </View>
+                    </Pressable>
                   )}
                 </View>
               );
@@ -330,23 +445,55 @@ function DayHeader({ day, index }: { day: Trip['days'][number]; index: number })
   );
 }
 
-function TimelineActivity({ activity, onPress }: { activity: Activity; onPress: () => void }) {
+function TimelineActivity({
+  activity,
+  index,
+  total,
+  ticketCount,
+  onPress,
+  onMove,
+}: {
+  activity: Activity;
+  index: number;
+  total: number;
+  ticketCount: number;
+  onPress: () => void;
+  onMove: (delta: -1 | 1) => void;
+}) {
   const t = useTheme();
   const p = placeById(activity.placeId);
   if (!p) return null;
   const color = p.isMeal ? t.secondary : t.primary;
   return (
-    <Pressable onPress={onPress} style={styles.actRow}>
+    <View style={styles.actRow}>
       <View style={{ width: 52, alignItems: 'flex-end', paddingTop: 2 }}>
         <Body style={{ fontSize: 13, fontWeight: '700', color: t.textSecondary }}>{minToHHMM(activity.startMin)}</Body>
       </View>
       <View style={[styles.actDot, { backgroundColor: color }]}>
         {activity.mustSee && <Ionicons name="star" size={10} color="#fff" />}
       </View>
-      <Card style={{ flex: 1, gap: 3 }}>
+      <Pressable onPress={onPress} style={{ flex: 1 }}>
+      <Card style={{ gap: 5 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Body style={{ fontWeight: '700', flex: 1 }}>{p.name}</Body>
-          <Ionicons name="ellipsis-horizontal" size={18} color={t.textSecondary} />
+          <View style={styles.reorderActions}>
+            <Pressable
+              disabled={index === 0}
+              accessibilityLabel={`Mover ${p.name} más temprano`}
+              hitSlop={6}
+              onPress={(event) => { event.stopPropagation(); onMove(-1); }}
+              style={[styles.reorderButton, index === 0 && { opacity: 0.25 }]}>
+              <Ionicons name="chevron-up" size={17} color={t.textSecondary} />
+            </Pressable>
+            <Pressable
+              disabled={index === total - 1}
+              accessibilityLabel={`Mover ${p.name} más tarde`}
+              hitSlop={6}
+              onPress={(event) => { event.stopPropagation(); onMove(1); }}
+              style={[styles.reorderButton, index === total - 1 && { opacity: 0.25 }]}>
+              <Ionicons name="chevron-down" size={17} color={t.textSecondary} />
+            </Pressable>
+          </View>
         </View>
         <Body muted style={{ fontSize: 13 }}>
           {CATEGORY_LABEL[p.categories[0]]} · {activity.durationMin} min · {PRICE_LABEL(p.price)}
@@ -355,9 +502,11 @@ function TimelineActivity({ activity, onPress }: { activity: Activity; onPress: 
           {p.needsBooking && <Tag color={t.warning} text="Reservar" />}
           {activity.note && <Tag color={t.warning} text="Verificar horario" />}
           {activity.mustSee && <Tag color={t.primary} text="Imprescindible" />}
+          {ticketCount > 0 && <Tag color={t.secondary} text={`${ticketCount} ticket${ticketCount > 1 ? 's' : ''}`} />}
         </View>
       </Card>
-    </Pressable>
+      </Pressable>
+    </View>
   );
 }
 
@@ -396,6 +545,145 @@ function MapaTab({ trip, day, setDay, onActivity }: { trip: Trip; day: number; s
                 <Pressable onPress={() => onActivity(a)} hitSlop={8}>
                   <Ionicons name="information-circle-outline" size={22} color={t.textSecondary} />
                 </Pressable>
+              </Card>
+            </Pressable>
+          );
+        })}
+      </View>
+    </>
+  );
+}
+
+/* ============================= Tickets ============================= */
+
+function TicketsTab({
+  trip,
+  onOpenActivity,
+}: {
+  trip: Trip;
+  onOpenActivity: (activity: Activity) => void;
+}) {
+  const t = useTheme();
+  const removeTicket = useStore((s) => s.removeTicket);
+  const tickets = trip.tickets ?? [];
+  const reservations = trip.days
+    .flatMap((day) => day.activities)
+    .filter((activity) => {
+      const place = placeById(activity.placeId);
+      return place?.price !== 0 || place?.needsBooking;
+    });
+
+  return (
+    <>
+      <View>
+        <H2>Tu billetera de viaje</H2>
+        <Body muted style={{ marginTop: 4 }}>
+          Entradas, confirmaciones y accesos ordenados por actividad.
+        </Body>
+      </View>
+
+      {tickets.length === 0 ? (
+        <View style={[styles.ticketEmpty, { backgroundColor: t.secondarySoft }]}>
+          <View style={[styles.ticketEmptyIcon, { backgroundColor: t.secondary }]}>
+            <Ionicons name="ticket-outline" size={28} color="#fff" />
+          </View>
+          <Body style={{ color: t.secondary, fontWeight: '900', fontSize: 18 }}>
+            Todavía no guardaste tickets
+          </Body>
+          <Body style={{ color: t.secondary, textAlign: 'center', fontSize: 13 }}>
+            Abrí una actividad paga, comprá en el sitio oficial y guardá acá el enlace o código de confirmación.
+          </Body>
+        </View>
+      ) : (
+        <View style={{ gap: Spacing.two }}>
+          {tickets
+            .slice()
+            .sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''))
+            .map((ticket) => {
+              const place = placeById(ticket.placeId);
+              return (
+                <View key={ticket.id} style={[styles.ticketCard, { backgroundColor: t.surface }]}>
+                  <View style={[styles.ticketStripe, { backgroundColor: t.primary }]} />
+                  <View style={styles.ticketBody}>
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
+                      <View style={[styles.ticketGlyph, { backgroundColor: t.primarySoft }]}>
+                        <Ionicons name="ticket" size={21} color={t.primary} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Body style={{ fontWeight: '900', fontSize: 16 }}>{ticket.title}</Body>
+                        <Body muted style={{ fontSize: 12 }}>
+                          {ticket.date ? fmtDate(ticket.date) : place?.zone ?? trip.cityName}
+                        </Body>
+                      </View>
+                      <Pressable
+                        accessibilityLabel={`Eliminar ticket de ${ticket.title}`}
+                        hitSlop={8}
+                        onPress={() => removeTicket(trip.id, ticket.id)}>
+                        <Ionicons name="trash-outline" size={19} color={t.textSecondary} />
+                      </Pressable>
+                    </View>
+                    {ticket.confirmationCode && (
+                      <View style={[styles.codeBox, { backgroundColor: t.background }]}>
+                        <Label>Código de confirmación</Label>
+                        <Body selectable style={{ fontWeight: '900', letterSpacing: 1 }}>
+                          {ticket.confirmationCode}
+                        </Body>
+                      </View>
+                    )}
+                    <View style={styles.ticketActions}>
+                      {ticket.ticketUrl && (
+                        <Button
+                          title="Abrir ticket"
+                          icon="open-outline"
+                          size="md"
+                          onPress={() => Linking.openURL(ticket.ticketUrl!)}
+                          style={{ flex: 1 }}
+                        />
+                      )}
+                      {ticket.activityId && (
+                        <Button
+                          title="Ver actividad"
+                          icon="location-outline"
+                          size="md"
+                          variant="ghost"
+                          onPress={() => {
+                            const activity = trip.days
+                              .flatMap((day) => day.activities)
+                              .find((item) => item.id === ticket.activityId);
+                            if (activity) onOpenActivity(activity);
+                          }}
+                          style={{ flex: 1 }}
+                        />
+                      )}
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
+        </View>
+      )}
+
+      <View style={{ gap: Spacing.two }}>
+        <H2>Actividades para reservar</H2>
+        {reservations.map((activity) => {
+          const place = placeById(activity.placeId);
+          const saved = tickets.some((ticket) => ticket.activityId === activity.id);
+          if (!place) return null;
+          return (
+            <Pressable key={activity.id} onPress={() => onOpenActivity(activity)}>
+              <Card style={styles.placeRow}>
+                <Ionicons
+                  name={saved ? 'checkmark-circle' : 'ticket-outline'}
+                  size={21}
+                  color={saved ? t.secondary : t.primary}
+                />
+                <View style={{ flex: 1 }}>
+                  <Body style={{ fontWeight: '700' }}>{place.name}</Body>
+                  <Body muted style={{ fontSize: 12 }}>
+                    {saved ? 'Ticket guardado' : purchaseUrlFor(place) ? 'Compra oficial disponible' : 'Agregar confirmación'}
+                  </Body>
+                </View>
+                <Ionicons name="chevron-forward" size={17} color={t.textSecondary} />
               </Card>
             </Pressable>
           );
@@ -482,6 +770,7 @@ function ActivityDetailSheet({
   onClose,
   onReplace,
   onMove,
+  onTicket,
   onToast,
 }: {
   trip: Trip;
@@ -489,6 +778,7 @@ function ActivityDetailSheet({
   onClose: () => void;
   onReplace: (a: Activity) => void;
   onMove: (a: Activity) => void;
+  onTicket: (a: Activity) => void;
   onToast: (m: string, undo?: boolean) => void;
 }) {
   const t = useTheme();
@@ -499,6 +789,7 @@ function ActivityDetailSheet({
   if (!activity || !p) return <Sheet visible={false} onClose={onClose}>{null}</Sheet>;
 
   const saved = trip.savedIds.includes(p.id);
+  const purchaseUrl = purchaseUrlFor(p);
   const openMaps = () => {
     const url = Platform.select({
       default: `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`,
@@ -544,16 +835,42 @@ function ActivityDetailSheet({
         )}
       </View>
 
+      {p.price > 0 && (
+        <View style={[styles.bookingPanel, { backgroundColor: t.secondarySoft }]}>
+          <View style={[styles.bookingIcon, { backgroundColor: t.secondary }]}>
+            <Ionicons name="ticket-outline" size={22} color="#fff" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Body style={{ color: t.secondary, fontWeight: '800' }}>
+              {p.needsBooking ? 'Conviene reservar antes' : 'Actividad paga'}
+            </Body>
+            <Body style={{ color: t.secondary, fontSize: 12, marginTop: 2 }}>
+              Comprá desde el sitio oficial y guardá después el ticket en Rumbo.
+            </Body>
+          </View>
+          {purchaseUrl && (
+            <Pressable
+              accessibilityRole="link"
+              accessibilityLabel={`Comprar entrada para ${p.name}`}
+              onPress={() => Linking.openURL(purchaseUrl)}
+              style={styles.bookingLink}>
+              <Ionicons name="open-outline" size={18} color="#fff" />
+            </Pressable>
+          )}
+        </View>
+      )}
+
       <View style={styles.actionGrid}>
         <Action icon="swap-horizontal" label="Reemplazar" onPress={() => onReplace(activity)} />
         <Action icon="calendar" label="Mover de día" onPress={() => onMove(activity)} />
         <Action icon={saved ? 'bookmark' : 'bookmark-outline'} label={saved ? 'Guardado' : 'Guardar'} onPress={() => { toggleSaved(trip.id, p.id); onToast(saved ? 'Quitado de guardados' : 'Lugar guardado'); }} />
         <Action icon="map" label="Abrir en Maps" onPress={openMaps} />
+        <Action icon="ticket-outline" label="Guardar ticket" onPress={() => onTicket(activity)} />
         <Action icon="trash" label="Eliminar" danger onPress={() => { removeActivity(trip.id, activity.id); onClose(); onToast('Actividad eliminada', true); }} />
       </View>
 
       <Body muted style={{ fontSize: 11, marginTop: Spacing.three, textAlign: 'center' }}>
-        Fuente: datos de ejemplo · Actualizado recientemente
+        Fuente: {p.source === 'openstreetmap' ? 'OpenStreetMap' : 'selección curada'} · Verificá horarios y precios en el sitio oficial
       </Body>
     </Sheet>
   );
@@ -788,19 +1105,51 @@ const styles = StyleSheet.create({
   zoneRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
   dayBadge: { width: 36, height: 36, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
   alert: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, borderWidth: 1.5 },
+  tripTools: { gap: Spacing.two },
+  tripTool: {
+    minHeight: 62,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+    paddingHorizontal: Spacing.three,
+    borderWidth: 1,
+    borderRadius: Radius.md,
+  },
+  tripToolIcon: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   actRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
   actDot: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
   legRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
   legLine: { width: 2, height: 22 },
   legPill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill },
+  reorderActions: { flexDirection: 'column', gap: 4, paddingTop: 2 },
+  reorderButton: { width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   mapCard: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   mapNum: { width: 30, height: 30, borderRadius: Radius.pill, alignItems: 'center', justifyContent: 'center' },
   countPill: { paddingHorizontal: 9, paddingVertical: 2, borderRadius: Radius.pill },
   placeRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, paddingVertical: Spacing.two },
   detailHero: { height: 120, borderRadius: Radius.lg, alignItems: 'center', justifyContent: 'center', marginTop: Spacing.one },
+  bookingPanel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    padding: Spacing.three,
+    marginTop: Spacing.three,
+    borderRadius: Radius.md,
+  },
+  bookingIcon: { width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  bookingLink: { width: 42, height: 42, borderRadius: 13, backgroundColor: '#16A085', alignItems: 'center', justifyContent: 'center' },
   actionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two, marginTop: Spacing.four },
   action: { width: '31%', flexGrow: 1, alignItems: 'center', gap: 6, paddingVertical: Spacing.three, borderWidth: 1, borderRadius: Radius.md },
   altRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  ticketEmpty: { alignItems: 'center', gap: 9, borderRadius: Radius.lg, padding: Spacing.four },
+  ticketEmptyIcon: { width: 58, height: 58, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  ticketCard: { flexDirection: 'row', borderRadius: Radius.lg, overflow: 'hidden' },
+  ticketStripe: { width: 7 },
+  ticketBody: { flex: 1, padding: Spacing.three, gap: Spacing.three },
+  ticketHeading: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  ticketGlyph: { width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  codeBox: { borderRadius: Radius.md, padding: Spacing.three, gap: 3 },
+  ticketActions: { flexDirection: 'row', gap: Spacing.two },
   dayPill: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: Radius.md, borderWidth: 1.5, alignItems: 'center' },
   toast: { position: 'absolute', left: 16, right: 16, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 14, borderRadius: Radius.md },
 });

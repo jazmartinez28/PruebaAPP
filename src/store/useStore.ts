@@ -4,10 +4,11 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 
 import { REMOTE_CONFIG } from '@/constants/config';
 import { cityById } from '@/data/cities';
-import { placeById } from '@/data/places';
+import { mergeRuntimePlaces, placeById, setRuntimePlaces } from '@/data/places';
 import { generateItinerary } from '@/lib/generate';
+import { fetchCityPlaces } from '@/lib/place-provider';
 import { rescheduleDay } from '@/lib/trip';
-import type { Accommodation, Budget, Category, Draft, Pace, Trip, User } from '@/types';
+import type { Accommodation, Budget, Category, Draft, Pace, Place, Ticket, Trip, User } from '@/types';
 
 const emptyDraft = (): Draft => ({
   accommodation: null,
@@ -26,6 +27,8 @@ type State = {
   accounts: Record<string, Account>;
   draft: Draft;
   trips: Trip[];
+  externalPlaces: Place[];
+  catalogStatus: Record<string, 'idle' | 'loading' | 'ready' | 'error'>;
   _undo: { tripId: string; days: Trip['days']; removedIds: string[] } | null;
   undo: () => void;
 
@@ -43,18 +46,23 @@ type State = {
   setPace: (p: Pace) => void;
   setBudget: (b: Budget) => void;
   setAccommodation: (a: Accommodation) => void;
+  loadCityCatalog: (cityId: string) => Promise<{ count: number; error?: string }>;
 
   // trips
   createTripFromDraft: () => { id?: string; error?: 'limit' };
   regenerate: (tripId: string) => void;
   deleteTrip: (tripId: string) => void;
   toggleSaved: (tripId: string, placeId: string) => void;
+  updateTripAccommodation: (tripId: string, accommodation: Accommodation) => void;
+  addTicket: (tripId: string, ticket: Omit<Ticket, 'id' | 'createdAt'>) => void;
+  removeTicket: (tripId: string, ticketId: string) => void;
 
   // edición del itinerario
   removeActivity: (tripId: string, activityId: string) => void;
   addActivity: (tripId: string, dayIndex: number, placeId: string) => void;
   replaceActivity: (tripId: string, activityId: string, newPlaceId: string) => void;
   moveActivityToDay: (tripId: string, activityId: string, toDayIndex: number) => void;
+  moveActivityWithinDay: (tripId: string, activityId: string, delta: -1 | 1) => void;
   setActivityStatus: (tripId: string, activityId: string, status: Trip['days'][number]['activities'][number]['status']) => void;
 };
 
@@ -78,6 +86,8 @@ export const useStore = create<State>()(
       accounts: {},
       draft: emptyDraft(),
       trips: [],
+      externalPlaces: [],
+      catalogStatus: {},
       _undo: null,
 
       undo: () =>
@@ -131,6 +141,34 @@ export const useStore = create<State>()(
       setPace: (p) => set((s) => ({ draft: { ...s.draft, pace: p } })),
       setBudget: (b) => set((s) => ({ draft: { ...s.draft, budget: b } })),
       setAccommodation: (a) => set((s) => ({ draft: { ...s.draft, accommodation: a } })),
+      loadCityCatalog: async (cityId) => {
+        const existing = get().externalPlaces.filter((place) => place.cityId === cityId);
+        if (existing.length >= 80) {
+          mergeRuntimePlaces(existing);
+          return { count: existing.length };
+        }
+        const city = cityById(cityId);
+        if (!city) return { count: 0, error: 'Ciudad no disponible' };
+        set((s) => ({ catalogStatus: { ...s.catalogStatus, [cityId]: 'loading' } }));
+        try {
+          const places = await fetchCityPlaces(city, 160);
+          mergeRuntimePlaces(places);
+          set((s) => {
+            const otherCities = s.externalPlaces.filter((place) => place.cityId !== cityId);
+            return {
+              externalPlaces: [...otherCities, ...places],
+              catalogStatus: { ...s.catalogStatus, [cityId]: 'ready' },
+            };
+          });
+          return { count: places.length };
+        } catch (error) {
+          set((s) => ({ catalogStatus: { ...s.catalogStatus, [cityId]: 'error' } }));
+          return {
+            count: existing.length,
+            error: error instanceof Error ? error.message : 'No pudimos ampliar el catálogo',
+          };
+        }
+      },
 
       createTripFromDraft: () => {
         const { draft, trips, user } = get();
@@ -155,6 +193,7 @@ export const useStore = create<State>()(
           mustSeeIds: draft.mustSeeIds,
           savedIds: [],
           removedIds: [],
+          tickets: [],
           days,
           createdAt: Date.now(),
           updatedAt: Date.now(),
@@ -185,6 +224,34 @@ export const useStore = create<State>()(
                     : [...t.savedIds, placeId],
                 })
               : t,
+          ),
+        })),
+      updateTripAccommodation: (tripId, accommodation) =>
+        set((s) => ({
+          trips: s.trips.map((trip) =>
+            trip.id === tripId ? touch({ ...trip, accommodation }) : trip,
+          ),
+        })),
+      addTicket: (tripId, ticket) =>
+        set((s) => ({
+          trips: s.trips.map((trip) =>
+            trip.id === tripId
+              ? touch({
+                  ...trip,
+                  tickets: [
+                    ...(trip.tickets ?? []),
+                    { ...ticket, id: newId('ticket'), createdAt: Date.now() },
+                  ],
+                })
+              : trip,
+          ),
+        })),
+      removeTicket: (tripId, ticketId) =>
+        set((s) => ({
+          trips: s.trips.map((trip) =>
+            trip.id === tripId
+              ? touch({ ...trip, tickets: (trip.tickets ?? []).filter((ticket) => ticket.id !== ticketId) })
+              : trip,
           ),
         })),
 
@@ -270,6 +337,23 @@ export const useStore = create<State>()(
             return touch({ ...t, days });
           }),
         })),
+      moveActivityWithinDay: (tripId, activityId, delta) =>
+        set((s) => ({
+          _undo: snapOf(s, tripId),
+          trips: s.trips.map((trip) => {
+            if (trip.id !== tripId) return trip;
+            const days = trip.days.map((day) => {
+              const index = day.activities.findIndex((activity) => activity.id === activityId);
+              if (index < 0) return day;
+              const target = index + delta;
+              if (target < 0 || target >= day.activities.length) return day;
+              const activities = [...day.activities];
+              [activities[index], activities[target]] = [activities[target], activities[index]];
+              return rescheduleDay({ ...day, activities });
+            });
+            return touch({ ...trip, days });
+          }),
+        })),
 
       setActivityStatus: (tripId, activityId, status) =>
         set((s) => ({
@@ -289,9 +373,18 @@ export const useStore = create<State>()(
     {
       name: 'rumbo-store',
       storage: createJSONStorage(() => AsyncStorage),
-      partialize: (s) => ({ user: s.user, accounts: s.accounts, trips: s.trips }),
+      partialize: (s) => ({
+        user: s.user,
+        accounts: s.accounts,
+        trips: s.trips,
+        externalPlaces: s.externalPlaces,
+      }),
       onRehydrateStorage: () => (state) => {
-        if (state) state.hydrated = true;
+        if (state) {
+          state.trips = state.trips.map((trip) => ({ ...trip, tickets: trip.tickets ?? [] }));
+          setRuntimePlaces(state.externalPlaces ?? []);
+          state.hydrated = true;
+        }
       },
     },
   ),

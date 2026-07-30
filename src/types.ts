@@ -41,6 +41,11 @@ export type Place = {
   needsBooking?: boolean;
   confident?: boolean; // false => mostrar "sujeto a cambios"
   isMeal?: boolean; // true para restaurantes (usados en almuerzo/cena)
+  address?: string;
+  officialUrl?: string;
+  bookingUrl?: string;
+  source?: 'curated' | 'openstreetmap';
+  sourceUrl?: string;
 };
 
 export type ActivityStatus = 'plan' | 'reservado' | 'hecho' | 'saltado';
@@ -66,10 +71,24 @@ export type TripStatus = 'proximo' | 'encurso' | 'finalizado';
 
 export type Accommodation = {
   name: string;
+  address?: string;
   lat: number;
   lng: number;
   zone?: string;
 } | null;
+
+export type Ticket = {
+  id: string;
+  activityId?: string;
+  placeId: string;
+  title: string;
+  provider?: string;
+  confirmationCode?: string;
+  ticketUrl?: string;
+  purchaseUrl?: string;
+  date?: string;
+  createdAt: number;
+};
 
 export type Trip = {
   id: string;
@@ -85,6 +104,7 @@ export type Trip = {
   mustSeeIds: string[]; // lugares imprescindibles
   savedIds: string[]; // guardados
   removedIds: string[]; // descartados
+  tickets: Ticket[];
   days: Day[];
   createdAt: number;
   updatedAt: number;

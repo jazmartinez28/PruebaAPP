@@ -25,6 +25,7 @@ export default function GenerandoScreen() {
   const router = useRouter();
   const draft = useStore((s) => s.draft);
   const createTrip = useStore((s) => s.createTripFromDraft);
+  const loadCityCatalog = useStore((s) => s.loadCityCatalog);
   const resetDraft = useStore((s) => s.resetDraft);
   const [stage, setStage] = useState(0);
   const done = useRef(false);
@@ -35,27 +36,35 @@ export default function GenerandoScreen() {
       router.replace('/');
       return;
     }
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    STAGES.forEach((_, i) => {
-      timers.push(setTimeout(() => setStage(i), i * 520));
-    });
-    timers.push(
-      setTimeout(() => {
-        if (done.current) return;
-        done.current = true;
-        const res = createTrip();
-        if (res.error === 'limit') {
-          router.replace('/paywall');
-        } else if (res.id) {
-          const id = res.id;
-          resetDraft();
-          router.replace(`/viaje/${id}`);
-        } else {
-          router.replace('/');
-        }
-      }, STAGES.length * 520 + 400),
-    );
-    return () => timers.forEach(clearTimeout);
+    let cancelled = false;
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const run = async () => {
+      setStage(0);
+      await wait(350);
+      setStage(1);
+      await loadCityCatalog(draft.cityId!);
+      for (let index = 2; index < STAGES.length; index++) {
+        if (cancelled) return;
+        setStage(index);
+        await wait(360);
+      }
+      if (cancelled || done.current) return;
+      done.current = true;
+      const res = createTrip();
+      if (res.error === 'limit') {
+        router.replace('/paywall');
+      } else if (res.id) {
+        const id = res.id;
+        resetDraft();
+        router.replace(`/viaje/${id}`);
+      } else {
+        router.replace('/');
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
