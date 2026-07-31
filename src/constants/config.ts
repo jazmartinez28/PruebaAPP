@@ -12,7 +12,7 @@ export const APP_TAGLINE = 'Tu viaje, organizado en minutos';
  * (Supabase / config remota) para poder cambiar límites y precios sin actualizar la app.
  */
 export const REMOTE_CONFIG = {
-  freeTripLimit: 2, // viajes guardados en el plan gratis
+  freeTripLimit: null, // sin límite de viajes durante la etapa de crecimiento
   freeAlternatives: 3, // alternativas al reemplazar (gratis)
   premiumAlternatives: 12,
   premiumMonthly: 'US$5 / mes',

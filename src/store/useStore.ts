@@ -227,7 +227,11 @@ export const useStore = create<State>()(
         if (!city || !draft.startDate || !draft.endDate) return { error: undefined as never };
         // límite freemium
         const isPremium = user?.plan === 'premium';
-        if (!isPremium && trips.length >= REMOTE_CONFIG.freeTripLimit) return { error: 'limit' };
+        if (
+          !isPremium &&
+          typeof REMOTE_CONFIG.freeTripLimit === 'number' &&
+          trips.length >= REMOTE_CONFIG.freeTripLimit
+        ) return { error: 'limit' };
 
         const days = generateItinerary(draft);
         const trip: Trip = {

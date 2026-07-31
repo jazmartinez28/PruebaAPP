@@ -106,12 +106,12 @@ export default function CrearScreen() {
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ padding: Spacing.three, gap: Spacing.three, paddingBottom: 40 }}
+        contentContainerStyle={styles.flowContent}
         keyboardShouldPersistTaps="handled">
         {/* ---------- Paso 1: Destino ---------- */}
         {step === 0 && (
           <>
-            <H1>¿A dónde vas?</H1>
+            <StepIntro icon="location-outline" title="¿A dónde vas?" description="Elegí la ciudad y empezamos a construir un viaje pensado para vos." />
             <View style={[styles.search, { backgroundColor: t.surface, borderColor: t.border }]}>
               <Ionicons name="search" size={18} color={t.textSecondary} />
               <TextInput
@@ -128,6 +128,9 @@ export default function CrearScreen() {
                 return (
                   <Pressable
                     key={c.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Elegir ${c.name}, ${c.country}`}
+                    accessibilityState={{ selected: sel }}
                     onPress={() => {
                       setDraft({ cityId: c.id, cityName: c.name, country: c.country });
                       void loadCityCatalog(c.id);
@@ -157,7 +160,7 @@ export default function CrearScreen() {
         {/* ---------- Paso 2: Fechas ---------- */}
         {step === 1 && (
           <>
-            <H1>¿Cuándo viajás?</H1>
+            <StepIntro icon="calendar-outline" title="¿Cuándo viajás?" description="Usamos las fechas para distribuir cada zona sin apurar el recorrido." />
             <Calendar
               start={draft.startDate}
               end={draft.endDate}
@@ -178,8 +181,7 @@ export default function CrearScreen() {
         {/* ---------- Paso 3: Alojamiento ---------- */}
         {step === 2 && (
           <>
-            <H1>¿Dónde te vas a alojar?</H1>
-            <Body muted>Es opcional. Nos sirve para armar recorridos que empiecen cerca tuyo.</Body>
+            <StepIntro icon="bed-outline" title="¿Dónde te vas a alojar?" description="Tu alojamiento será el punto de salida y regreso de cada día." optional />
             {[
               { id: 'yes', label: 'Ya tengo alojamiento', icon: 'bed' },
               { id: 'no', label: 'Todavía no lo decidí', icon: 'help-circle' },
@@ -189,6 +191,8 @@ export default function CrearScreen() {
               return (
                 <Pressable
                   key={o.id}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: sel }}
                   onPress={() => {
                     setAccChoice(o.id as any);
                     if (o.id !== 'yes') setAccommodation(null);
@@ -237,6 +241,9 @@ export default function CrearScreen() {
                   return (
                     <Pressable
                       key={`${result.lat}-${result.lng}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Usar ${result.name}`}
+                      accessibilityState={{ selected }}
                       onPress={() =>
                         setAccommodation({
                           name: result.name,
@@ -283,8 +290,7 @@ export default function CrearScreen() {
         {/* ---------- Paso 4: Intereses ---------- */}
         {step === 3 && (
           <>
-            <H1>¿Qué te gusta hacer?</H1>
-            <Body muted>Elegí todo lo que te interese. Mientras más nos cuentes, mejor el plan.</Body>
+            <StepIntro icon="sparkles-outline" title="¿Qué te gusta hacer?" description="Elegí varias opciones. Esto define qué lugares priorizamos para vos." />
             <View style={styles.chips}>
               {INTERESTS.map((i) => (
                 <Chip
@@ -302,11 +308,15 @@ export default function CrearScreen() {
         {/* ---------- Paso 5: Ritmo ---------- */}
         {step === 4 && (
           <>
-            <H1>¿A qué ritmo?</H1>
+            <StepIntro icon="speedometer-outline" title="¿A qué ritmo?" description="Definí cuánto querés hacer por día. Siempre dejamos tiempos de traslado y pausas." />
             {PACES.map((p) => {
               const sel = draft.pace === p.id;
               return (
-                <Pressable key={p.id} onPress={() => setDraft({ pace: p.id })}>
+                <Pressable
+                  key={p.id}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: sel }}
+                  onPress={() => setDraft({ pace: p.id })}>
                   <Card style={[styles.paceCard, sel && { borderColor: t.primary, borderWidth: 2 }]}>
                     <View style={[styles.paceIcon, { backgroundColor: sel ? t.primary : t.primarySoft }]}>
                       <Ionicons name={p.icon} size={22} color={sel ? t.textOnPrimary : t.primary} />
@@ -328,8 +338,7 @@ export default function CrearScreen() {
         {/* ---------- Paso 6: Presupuesto ---------- */}
         {step === 5 && (
           <>
-            <H1>¿Qué presupuesto manejás?</H1>
-            <Body muted>Lo usamos para ajustar restaurantes y actividades. No pedimos datos financieros.</Body>
+            <StepIntro icon="wallet-outline" title="¿Qué presupuesto manejás?" description="Una referencia diaria para equilibrar comidas y actividades. No pedimos datos financieros." />
             {BUDGETS.map((b) => {
               const sel = draft.budget === b.id;
               const currency = CITY_CURRENCY[draft.cityId ?? ''] ?? 'USD';
@@ -344,7 +353,11 @@ export default function CrearScreen() {
                   maximumFractionDigits: 0,
                 }).format(value);
               return (
-                <Pressable key={b.id} onPress={() => setDraft({ budget: b.id as Budget })}>
+                <Pressable
+                  key={b.id}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: sel }}
+                  onPress={() => setDraft({ budget: b.id as Budget })}>
                   <Card style={[styles.budgetCard, sel && { borderColor: t.primary, borderWidth: 2 }]}>
                     <View style={{ flex: 1 }}>
                       <View style={styles.budgetHeading}>
@@ -379,8 +392,7 @@ export default function CrearScreen() {
         {/* ---------- Paso 7: Imprescindibles ---------- */}
         {step === 6 && (
           <>
-            <H1>¿Algún lugar imprescindible?</H1>
-            <Body muted>Marcá los que no te querés perder. Los vamos a respetar siempre. (Opcional)</Body>
+            <StepIntro icon="star-outline" title="¿Qué no te querés perder?" description="Buscá y marcá tus imprescindibles. Permanecerán protegidos al reorganizar el viaje." optional />
             <View style={[styles.search, { backgroundColor: t.surface, borderColor: t.border }]}>
               <Ionicons name="search" size={19} color={t.textSecondary} />
               <TextInput
@@ -405,10 +417,11 @@ export default function CrearScreen() {
                     const place = cityPlaces.find((candidate) => candidate.id === id);
                     if (!place) return null;
                     return (
-                      <Pressable
-                        key={id}
-                        accessibilityLabel={`Quitar ${place.name}`}
-                        onPress={() => toggleMustSee(id)}
+                    <Pressable
+                      key={id}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Quitar ${place.name}`}
+                      onPress={() => toggleMustSee(id)}
                         style={[styles.selectedPlace, { backgroundColor: t.primarySoft }]}>
                         <Body numberOfLines={1} style={{ color: t.primaryStrong, fontWeight: '800', fontSize: 12, maxWidth: 160 }}>
                           {place.name}
@@ -444,7 +457,12 @@ export default function CrearScreen() {
                 .map((p) => {
                   const sel = draft.mustSeeIds.includes(p.id);
                   return (
-                    <Pressable key={p.id} onPress={() => toggleMustSee(p.id)}>
+                    <Pressable
+                      key={p.id}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${sel ? 'Quitar' : 'Agregar'} ${p.name} como imprescindible`}
+                      accessibilityState={{ selected: sel }}
+                      onPress={() => toggleMustSee(p.id)}>
                       <Card style={[styles.mustRow, sel && { borderColor: t.primary }]}>
                         <View style={{ flex: 1 }}>
                           <Body style={{ fontWeight: '600' }}>{p.name}</Body>
@@ -522,12 +540,14 @@ export default function CrearScreen() {
 
       {/* Footer */}
       <View style={[styles.footer, { backgroundColor: t.surface, borderTopColor: t.border }]}>
-        <Button
-          title={step === TOTAL - 1 ? 'Crear mi itinerario' : 'Continuar'}
-          icon={step === TOTAL - 1 ? 'sparkles' : 'arrow-forward'}
-          disabled={!canContinue()}
-          onPress={next}
-        />
+        <View style={styles.footerInner}>
+          <Button
+            title={step === TOTAL - 1 ? 'Crear mi itinerario' : 'Continuar'}
+            icon={step === TOTAL - 1 ? 'sparkles' : 'arrow-forward'}
+            disabled={!canContinue()}
+            onPress={next}
+          />
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -558,12 +578,13 @@ function ReviewStep({ onEdit }: { onEdit: (step: number) => void }) {
   ];
   return (
     <>
-      <H1>Revisá tu viaje</H1>
-      <Body muted>Tocá cualquier fila para editarla.</Body>
+      <StepIntro icon="checkmark-circle-outline" title="Todo listo para organizarlo" description="Revisá los datos. Podés volver a cualquier sección sin perder lo ingresado." />
       <Card style={{ padding: 0 }}>
         {rows.map((r, i) => (
           <Pressable
             key={r.label}
+            accessibilityRole="button"
+            accessibilityLabel={`Editar ${r.label}`}
             onPress={() => onEdit(r.step)}
             style={[styles.reviewRow, i < rows.length - 1 && { borderBottomWidth: 1, borderBottomColor: t.border }]}>
             <View style={{ flex: 1 }}>
@@ -578,7 +599,54 @@ function ReviewStep({ onEdit }: { onEdit: (step: number) => void }) {
   );
 }
 
+function StepIntro({
+  icon,
+  title,
+  description,
+  optional,
+}: {
+  icon: any;
+  title: string;
+  description: string;
+  optional?: boolean;
+}) {
+  const t = useTheme();
+  return (
+    <View style={styles.stepIntro}>
+      <View style={[styles.stepIcon, { backgroundColor: t.primarySoft }]}>
+        <Ionicons name={icon} size={23} color={t.primary} />
+      </View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <View style={styles.stepTitleRow}>
+          <H1 style={styles.stepTitle}>{title}</H1>
+          {optional && (
+            <View style={[styles.optionalBadge, { backgroundColor: t.backgroundElement }]}>
+              <Body muted style={{ fontSize: 11, fontWeight: '800' }}>Opcional</Body>
+            </View>
+          )}
+        </View>
+        <Body muted style={styles.stepDescription}>{description}</Body>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  flowContent: {
+    width: '100%',
+    maxWidth: 760,
+    alignSelf: 'center',
+    paddingHorizontal: Spacing.three,
+    paddingTop: Spacing.four,
+    paddingBottom: Spacing.five,
+    gap: Spacing.three,
+  },
+  stepIntro: { flexDirection: 'row', alignItems: 'flex-start', gap: 14, marginBottom: Spacing.one },
+  stepIcon: { width: 48, height: 48, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  stepTitleRow: { flexDirection: 'row', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 },
+  stepTitle: { flexShrink: 1, fontSize: 27, lineHeight: 32 },
+  stepDescription: { marginTop: 5, maxWidth: 580 },
+  optionalBadge: { minHeight: 28, justifyContent: 'center', paddingHorizontal: 9, borderRadius: Radius.pill },
   catalogInfo: {
     minHeight: 48,
     flexDirection: 'row',
@@ -607,6 +675,7 @@ const styles = StyleSheet.create({
   mustRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three, paddingVertical: Spacing.two },
   reviewRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, padding: Spacing.three },
   footer: { padding: Spacing.three, paddingTop: Spacing.two, borderTopWidth: 1, marginBottom: TAB_BAR_HEIGHT },
+  footerInner: { width: '100%', maxWidth: 760, alignSelf: 'center' },
   hotelSearch: {
     minHeight: 56,
     flexDirection: 'row',

@@ -61,13 +61,23 @@ export function Calendar({
   return (
     <View style={[styles.wrap, { backgroundColor: t.surface, borderColor: t.border }]}>
       <View style={styles.header}>
-        <Pressable onPress={() => shift(-1)} hitSlop={8} style={styles.nav}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Mes anterior"
+          onPress={() => shift(-1)}
+          hitSlop={8}
+          style={styles.nav}>
           <Ionicons name="chevron-back" size={20} color={t.text} />
         </Pressable>
         <Body style={{ fontWeight: '700' }}>
           {MESES[view.m]} {view.y}
         </Body>
-        <Pressable onPress={() => shift(1)} hitSlop={8} style={styles.nav}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Mes siguiente"
+          onPress={() => shift(1)}
+          hitSlop={8}
+          style={styles.nav}>
           <Ionicons name="chevron-forward" size={20} color={t.text} />
         </Pressable>
       </View>
@@ -87,10 +97,13 @@ export function Calendar({
           const s = isStart(d);
           const e = isEnd(d);
           const mid = inRange(d);
-          const selected = s || e;
+          const selected = Boolean(s || e);
           return (
             <Pressable
               key={i}
+              accessibilityRole="button"
+              accessibilityLabel={`${d.getDate()} de ${MESES[view.m]} de ${view.y}`}
+              accessibilityState={{ disabled: past, selected }}
               disabled={past}
               onPress={() => pick(d)}
               style={[styles.cell, mid && { backgroundColor: t.primarySoft }]}>

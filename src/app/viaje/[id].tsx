@@ -36,6 +36,12 @@ const TAB_LABEL: Record<Tab, string> = {
   tickets: 'Tickets',
   lugares: 'Lugares',
 };
+const PRIMARY_TABS = [
+  { id: 'resumen', label: 'Resumen', icon: 'grid-outline' },
+  { id: 'itinerario', label: 'Plan', icon: 'list-outline' },
+  { id: 'mapa', label: 'Mapa', icon: 'map-outline' },
+  { id: 'more', label: 'Más', icon: 'ellipsis-horizontal-circle-outline' },
+] as const;
 
 export default function TripScreen() {
   const { id, tab: initialTab, action } = useLocalSearchParams<{
@@ -114,14 +120,23 @@ export default function TripScreen() {
       {/* Pestañas internas */}
       <ScrollView
         horizontal
+        style={[styles.tabsViewport, { backgroundColor: t.surface, borderBottomColor: t.border }]}
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={[styles.tabs, { backgroundColor: t.surface, borderBottomColor: t.border }]}>
-        {(['resumen', 'itinerario', 'mapa', 'valija', 'tickets', 'lugares'] as Tab[]).map((k) => {
-          const on = tab === k;
+        contentContainerStyle={styles.tabsContent}>
+        {PRIMARY_TABS.map((item) => {
+          const on = item.id === 'more'
+            ? tab === 'valija' || tab === 'tickets' || tab === 'lugares'
+            : tab === item.id;
           return (
-            <Pressable key={k} onPress={() => setTab(k)} style={styles.tab}>
+            <Pressable
+              key={item.id}
+              accessibilityRole="button"
+              accessibilityState={{ selected: on }}
+              onPress={() => setTab(item.id === 'more' ? 'valija' : item.id)}
+              style={styles.tab}>
+              <Ionicons name={item.icon} size={18} color={on ? t.primary : t.textSecondary} />
               <Body style={{ color: on ? t.primary : t.textSecondary, fontWeight: on ? '800' : '600', fontSize: 14 }}>
-                {TAB_LABEL[k]}
+                {item.label}
               </Body>
               {on && <View style={[styles.tabInd, { backgroundColor: t.primary }]} />}
             </Pressable>
@@ -129,7 +144,7 @@ export default function TripScreen() {
         })}
       </ScrollView>
 
-      <ScrollView contentContainerStyle={[styles.tripContent, { paddingHorizontal: width >= 760 ? Spacing.five : Spacing.three }]}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={[styles.tripContent, { paddingHorizontal: width >= 760 ? Spacing.five : Spacing.three }]}>
         {tab === 'resumen' && (
           <ResumenTab
             trip={trip}
@@ -148,15 +163,18 @@ export default function TripScreen() {
             onTransport={(from, to) => setTransportLeg({ from, to })}
             onToast={showToast}
             onMap={() => setTab('mapa')}
-            onReplace={setReplaceAct}
-            onMoveDay={setMoveAct}
             onEdit={setEditActivity}
           />
         )}
         {tab === 'mapa' && <MapaTab trip={trip} day={day} setDay={setDay} onActivity={setDetailAct} onPlan={() => setTab('itinerario')} />}
-        {tab === 'valija' && <PackingList trip={trip} />}
-        {tab === 'tickets' && <TicketsTab trip={trip} onOpenActivity={setDetailAct} />}
-        {tab === 'lugares' && <LugaresTab trip={trip} onActivity={setDetailAct} />}
+        {(tab === 'valija' || tab === 'tickets' || tab === 'lugares') && (
+          <>
+            <UtilitySwitcher value={tab} onChange={setTab} />
+            {tab === 'valija' && <PackingList trip={trip} />}
+            {tab === 'tickets' && <TicketsTab trip={trip} onOpenActivity={setDetailAct} />}
+            {tab === 'lugares' && <LugaresTab trip={trip} onActivity={setDetailAct} />}
+          </>
+        )}
       </ScrollView>
 
       {/* Toast / deshacer */}
@@ -222,6 +240,39 @@ export default function TripScreen() {
         onClose={() => setEditActivity(null)}
         onSaved={() => { setEditActivity(null); showToast('Actividad actualizada', true); }}
       />
+    </View>
+  );
+}
+
+function UtilitySwitcher({
+  value,
+  onChange,
+}: {
+  value: 'valija' | 'tickets' | 'lugares';
+  onChange: (tab: Tab) => void;
+}) {
+  const t = useTheme();
+  const options = [
+    { id: 'valija', label: 'Valija', icon: 'bag-check-outline' },
+    { id: 'tickets', label: 'Tickets', icon: 'ticket-outline' },
+    { id: 'lugares', label: 'Lugares', icon: 'bookmark-outline' },
+  ] as const;
+  return (
+    <View style={[styles.utilitySwitch, { backgroundColor: t.backgroundElement }]}>
+      {options.map((option) => {
+        const selected = value === option.id;
+        return (
+          <Pressable
+            key={option.id}
+            accessibilityRole="button"
+            accessibilityState={{ selected }}
+            onPress={() => onChange(option.id)}
+            style={[styles.utilityButton, selected && { backgroundColor: t.surface }]}>
+            <Ionicons name={option.icon} size={18} color={selected ? t.primary : t.textSecondary} />
+            <Body style={{ fontSize: 12, fontWeight: '800', color: selected ? t.text : t.textSecondary }}>{option.label}</Body>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -359,8 +410,6 @@ function ItinerarioTab({
   onTransport,
   onToast,
   onMap,
-  onReplace,
-  onMoveDay,
   onEdit,
 }: {
   trip: Trip;
@@ -371,13 +420,10 @@ function ItinerarioTab({
   onTransport: (from: Place, to: Place) => void;
   onToast: (message: string, undo?: boolean) => void;
   onMap: () => void;
-  onReplace: (activity: Activity) => void;
-  onMoveDay: (activity: Activity) => void;
   onEdit: (activity: Activity) => void;
 }) {
   const t = useTheme();
   const moveWithinDay = useStore((s) => s.moveActivityWithinDay);
-  const removeActivity = useStore((s) => s.removeActivity);
   const d = trip.days[day];
   const hotelPlace: Place | null = trip.accommodation
     ? {
@@ -437,12 +483,6 @@ function ItinerarioTab({
                     onMove={(delta) => {
                       moveWithinDay(trip.id, a.id, delta);
                       onToast(`Actividad movida ${delta < 0 ? 'más temprano' : 'más tarde'}`, true);
-                    }}
-                    onReplace={() => onReplace(a)}
-                    onMoveDay={() => onMoveDay(a)}
-                    onDelete={() => {
-                      removeActivity(trip.id, a.id);
-                      onToast('Actividad eliminada', true);
                     }}
                     onEdit={() => onEdit(a)}
                   />
@@ -599,9 +639,6 @@ function TimelineActivity({
   ticketCount,
   onPress,
   onMove,
-  onReplace,
-  onMoveDay,
-  onDelete,
   onEdit,
 }: {
   activity: Activity;
@@ -610,9 +647,6 @@ function TimelineActivity({
   ticketCount: number;
   onPress: () => void;
   onMove: (delta: -1 | 1) => void;
-  onReplace: () => void;
-  onMoveDay: () => void;
-  onDelete: () => void;
   onEdit: () => void;
 }) {
   const t = useTheme();
@@ -627,7 +661,7 @@ function TimelineActivity({
         <Body style={{ fontSize: 13, fontWeight: '700', color: t.textSecondary }}>{minToHHMM(activity.startMin)}</Body>
       </View>
       <View style={[styles.actDot, { backgroundColor: color }]}>
-        {activity.mustSee && <Ionicons name="star" size={10} color="#fff" />}
+        <Ionicons name={activity.mustSee ? 'star' : visual.icon} size={11} color="#fff" />
       </View>
       <Pressable onPress={onPress} style={{ flex: 1 }}>
       <Card style={{ gap: 5 }}>
@@ -668,9 +702,7 @@ function TimelineActivity({
         </View>
         <View style={[styles.quickActions, { borderTopColor: t.border }]}>
           <QuickActivityAction icon="create-outline" label="Editar" onPress={onEdit} />
-          <QuickActivityAction icon="swap-horizontal-outline" label="Cambiar" onPress={onReplace} />
-          <QuickActivityAction icon="calendar-outline" label="Mover" onPress={onMoveDay} />
-          <QuickActivityAction icon="trash-outline" label="Quitar" onPress={onDelete} danger />
+          <QuickActivityAction icon="options-outline" label="Más opciones" onPress={onPress} />
         </View>
       </Card>
       </Pressable>
@@ -1330,7 +1362,11 @@ function ShareSheet({ trip, visible, onClose, onToast }: { trip: Trip; visible: 
 function DaySelector({ trip, day, setDay }: { trip: Trip; day: number; setDay: (d: number) => void }) {
   const t = useTheme();
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+    <ScrollView
+      horizontal
+      style={styles.daySelectorViewport}
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.daySelectorContent}>
       {trip.days.map((d, i) => {
         const on = i === day;
         return (
@@ -1417,8 +1453,9 @@ const styles = StyleSheet.create({
   headerMeta: { flexDirection: 'row', gap: 8, marginTop: Spacing.two, flexWrap: 'wrap' },
   metaChip: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill },
   metaText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-  tabs: { flexDirection: 'row', borderBottomWidth: 1, paddingHorizontal: Spacing.two },
-  tab: { minWidth: 82, alignItems: 'center', paddingVertical: 12, paddingHorizontal: 8 },
+  tabsViewport: { flexGrow: 0, flexShrink: 0, height: 54, minHeight: 54, maxHeight: 54, borderBottomWidth: 1 },
+  tabsContent: { width: '100%', height: 53, flexDirection: 'row', alignItems: 'stretch', paddingHorizontal: Spacing.two },
+  tab: { flex: 1, height: 53, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
   tabInd: { position: 'absolute', bottom: 0, height: 3, width: 28, borderRadius: 2 },
   statGrid: { flexDirection: 'row', gap: Spacing.two, flexWrap: 'wrap' },
   statBox: { flexGrow: 1, flexBasis: '22%', alignItems: 'center', gap: 3, paddingVertical: Spacing.three },
@@ -1451,6 +1488,8 @@ const styles = StyleSheet.create({
   mapCard: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   viewSwitch: { flexDirection: 'row', padding: 4, borderRadius: Radius.md, gap: 4 },
   viewSwitchButton: { flex: 1, minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 12 },
+  utilitySwitch: { flexDirection: 'row', gap: 4, padding: 4, borderRadius: Radius.md },
+  utilityButton: { flex: 1, minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 12 },
   mapNum: { width: 30, height: 30, borderRadius: Radius.pill, alignItems: 'center', justifyContent: 'center' },
   countPill: { paddingHorizontal: 9, paddingVertical: 2, borderRadius: Radius.pill },
   placeRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, paddingVertical: Spacing.two },
@@ -1483,5 +1522,7 @@ const styles = StyleSheet.create({
   codeBox: { borderRadius: Radius.md, padding: Spacing.three, gap: 3 },
   ticketActions: { flexDirection: 'row', gap: Spacing.two },
   dayPill: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: Radius.md, borderWidth: 1.5, alignItems: 'center' },
+  daySelectorViewport: { flexGrow: 0, width: '100%', minHeight: 64, maxHeight: 76 },
+  daySelectorContent: { gap: 8, alignItems: 'center', paddingRight: Spacing.three },
   toast: { position: 'absolute', left: 16, right: 16, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 14, borderRadius: Radius.md },
 });
