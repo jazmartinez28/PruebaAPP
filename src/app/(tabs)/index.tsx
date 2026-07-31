@@ -14,6 +14,7 @@ import {
 
 import { CityImage } from '@/components/city-image';
 import { BrandMark } from '@/components/brand-mark';
+import { JourneyRoute } from '@/components/journey-route';
 import { Body, Button, Card, H1, H2, Label, Screen } from '@/components/ui';
 import { Radius, Spacing } from '@/constants/theme';
 import { CITIES, cityById, type City } from '@/data/cities';
@@ -331,6 +332,11 @@ function NextTripCard({ trip, onOpen, onShare }: { trip: Trip; onOpen: () => voi
         : daysLeft === 0
           ? 'Tu viaje empieza hoy'
           : `Faltan ${daysLeft} días`;
+  const zones = Array.from(new Set(trip.days.map((day) => day.zone).filter(Boolean))).slice(0, 4);
+  const packing = trip.packingItems ?? [];
+  const packed = packing.filter((item) => item.packed).length;
+  const readyChecks = [Boolean(trip.accommodation), packing.length > 0 && packed === packing.length, (trip.tickets ?? []).length > 0];
+  const readiness = Math.max(24, Math.round((readyChecks.filter(Boolean).length / readyChecks.length) * 100));
 
   return (
     <CityImage city={city} scrim={0.38} style={styles.next}>
@@ -349,10 +355,19 @@ function NextTripCard({ trip, onOpen, onShare }: { trip: Trip; onOpen: () => voi
         </Pressable>
       </View>
       <View style={styles.nextCopy}>
+        <Body style={styles.nextEyebrow}>TU PRÓXIMA HISTORIA</Body>
         <Body style={styles.nextCity}>{trip.cityName}</Body>
         <Body style={styles.nextMeta}>
           {fmtRange(trip.startDate, trip.endDate)} · {stats.days} días · {stats.activities} actividades
         </Body>
+      </View>
+      <View style={styles.nextRoute}>
+        <JourneyRoute dark labels={zones.length ? zones : ['Llegada', 'Explorar', 'Disfrutar', 'Regreso']} />
+        <View style={styles.nextReadiness}>
+          <Body style={styles.nextReadyLabel}>Preparación</Body>
+          <View style={styles.nextReadyTrack}><View style={[styles.nextReadyFill, { width: `${readiness}%` }]} /></View>
+          <Body style={styles.nextReadyValue}>{readiness}%</Body>
+        </View>
       </View>
       <View style={styles.nextActions}>
         <Button
@@ -806,9 +821,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  nextCopy: { marginTop: 'auto', marginBottom: 18 },
+  nextCopy: { marginTop: 'auto', marginBottom: 14 },
+  nextEyebrow: { color: '#65D6B9', fontSize: 10, fontWeight: '900', letterSpacing: 1.1, marginBottom: 2 },
   nextCity: { color: '#FFFFFF', fontSize: 38, lineHeight: 42, fontWeight: '900' },
   nextMeta: { color: '#FFFFFF', opacity: 0.9, marginTop: 5 },
+  nextRoute: { gap: 8, marginBottom: 16 },
+  nextReadiness: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  nextReadyLabel: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
+  nextReadyTrack: { flex: 1, height: 5, borderRadius: Radius.pill, backgroundColor: 'rgba(255,255,255,0.28)', overflow: 'hidden' },
+  nextReadyFill: { height: 5, borderRadius: Radius.pill, backgroundColor: '#65D6B9' },
+  nextReadyValue: { color: '#FFFFFF', fontSize: 11, fontWeight: '900' },
   nextActions: { flexDirection: 'row', gap: 9 },
   editTrip: {
     width: 50,

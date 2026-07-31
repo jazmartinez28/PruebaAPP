@@ -40,22 +40,30 @@ export function TopBar({
 }
 
 /** Barra de progreso segmentada (paso actual de N). */
-export function ProgressBar({ step, total }: { step: number; total: number }) {
+export function ProgressBar({ step, total, label }: { step: number; total: number; label?: string }) {
   const t = useTheme();
   return (
     <View style={styles.progressShell}>
-      <View style={styles.progress}>
-        {Array.from({ length: total }).map((_, i) => (
-          <View
-            key={i}
-            style={{
-              flex: 1,
-              height: 5,
-              borderRadius: Radius.pill,
-              backgroundColor: i <= step ? t.primary : t.border,
-            }}
-          />
-        ))}
+      <View style={styles.progressFrame}>
+        {label ? (
+          <View style={styles.progressMeta}>
+            <Body style={{ color: t.textSecondary, fontSize: 12, fontWeight: '700' }}>{label}</Body>
+            <Body style={{ color: t.primary, fontSize: 12, fontWeight: '900' }}>{Math.round(((step + 1) / total) * 100)}%</Body>
+          </View>
+        ) : null}
+        <View style={styles.progress}>
+          {Array.from({ length: total }).map((_, i) => (
+            <View
+              key={i}
+              style={{
+                flex: 1,
+                height: 5,
+                borderRadius: Radius.pill,
+                backgroundColor: i <= step ? t.primary : t.border,
+              }}
+            />
+          ))}
+        </View>
       </View>
     </View>
   );
@@ -66,5 +74,7 @@ const styles = StyleSheet.create({
   top: { width: '100%', maxWidth: 760, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: Spacing.two, paddingVertical: Spacing.two },
   iconBtn: { width: 40, height: 40, borderRadius: Radius.pill, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: 'transparent' },
   progressShell: { width: '100%', paddingHorizontal: Spacing.three },
-  progress: { width: '100%', maxWidth: 760, alignSelf: 'center', flexDirection: 'row', gap: 6, paddingBottom: Spacing.two },
+  progressFrame: { width: '100%', maxWidth: 760, alignSelf: 'center', gap: 7, paddingBottom: Spacing.two },
+  progressMeta: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  progress: { width: '100%', flexDirection: 'row', gap: 6 },
 });

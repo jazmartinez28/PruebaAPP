@@ -1,13 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { AccessibilityInfo, ActivityIndicator, Animated, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { TAB_BAR_HEIGHT } from '@/components/app-tabs';
 import { Calendar } from '@/components/calendar';
 import { CityImage } from '@/components/city-image';
 import { ProgressBar, TopBar } from '@/components/flow-ui';
+import { JourneyRoute } from '@/components/journey-route';
 import { Body, Button, Card, Chip, H1, Label } from '@/components/ui';
 import { CITY_CURRENCY, REMOTE_CONFIG } from '@/constants/config';
 import { Radius, Spacing } from '@/constants/theme';
@@ -25,6 +27,8 @@ import { useStore } from '@/store/useStore';
 import type { Accommodation, Budget, Draft, GroupType, TravelPointType } from '@/types';
 
 const TOTAL = 8;
+const STEP_LABELS = ['Destino', 'Fechas', 'Tu base', 'Intereses', 'Tu ritmo', 'Presupuesto', 'Imprescindibles', 'Revisión'];
+const STEP_ACTIONS = ['Elegir fechas', 'Definir mi base', 'Elegir intereses', 'Definir mi ritmo', 'Elegir presupuesto', 'Sumar imprescindibles', 'Revisar mi viaje', 'Crear mi itinerario'];
 
 const PARTY: { n: number; label: string }[] = [
   { n: 1, label: 'Solo' },
@@ -76,6 +80,10 @@ export default function CrearScreen() {
   const [manualName, setManualName] = useState('');
   const [manualReference, setManualReference] = useState('');
   const [showManual, setShowManual] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(false);
+  const direction = useRef(1);
+  const stepMotion = useRef(new Animated.Value(1)).current;
+  const scrollRef = useRef<ScrollView>(null);
 
   const cityPlaces = draft.cityId ? placesByCity(draft.cityId) : [];
   const zones = useMemo(() => Array.from(new Set(cityPlaces.map((p) => p.zone))), [draft.cityId]);
@@ -88,6 +96,20 @@ export default function CrearScreen() {
     void loadTripEvents(draft.cityId, draft.startDate, draft.endDate);
   }, [draft.cityId, draft.startDate, draft.endDate, loadTripEvents]);
 
+  useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled().then(setReducedMotion);
+  }, []);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: !reducedMotion });
+    if (reducedMotion) {
+      stepMotion.setValue(1);
+      return;
+    }
+    stepMotion.setValue(0);
+    Animated.timing(stepMotion, { toValue: 1, duration: 280, useNativeDriver: true }).start();
+  }, [reducedMotion, step, stepMotion]);
+
   const canContinue = () => {
     if (step === 0) return !!draft.cityId;
     if (step === 1) return !!draft.startDate && !!draft.endDate;
@@ -96,10 +118,24 @@ export default function CrearScreen() {
     return true;
   };
 
-  const back = () => (step === 0 ? router.push('/') : setStep((s) => s - 1));
+  const back = () => {
+    if (step === 0) {
+      router.push('/');
+      return;
+    }
+    direction.current = -1;
+    void Haptics.selectionAsync();
+    setStep((s) => s - 1);
+  };
   const next = () => {
-    if (step < TOTAL - 1) setStep((s) => s + 1);
-    else router.push('/generando');
+    direction.current = 1;
+    if (step < TOTAL - 1) {
+      void Haptics.selectionAsync();
+      setStep((s) => s + 1);
+    } else {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.push('/generando');
+    }
   };
 
   const chooseZone = (zone: string) => {
@@ -130,13 +166,30 @@ export default function CrearScreen() {
 
   return (
     <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: t.background }}>
-      <TopBar onBack={back} title={`Paso ${step + 1} de ${TOTAL}`} />
-      <ProgressBar step={step} total={TOTAL} />
+      <TopBar onBack={back} title="Planificar viaje" />
+      <ProgressBar step={step} total={TOTAL} label={`${STEP_LABELS[step]} · Paso ${step + 1} de ${TOTAL}`} />
 
       <ScrollView
+        ref={scrollRef}
         style={{ flex: 1 }}
         contentContainerStyle={styles.flowContent}
         keyboardShouldPersistTaps="handled">
+        <Animated.View
+          key={step}
+          style={[
+            styles.stepStage,
+            {
+              opacity: stepMotion,
+              transform: [{ translateX: reducedMotion ? 0 : stepMotion.interpolate({ inputRange: [0, 1], outputRange: [direction.current * 24, 0] }) }],
+            },
+          ]}>
+        <View style={[styles.routePreview, { backgroundColor: t.secondarySoft }]}>
+          <View style={styles.routePreviewCopy}>
+            <Body style={{ color: t.secondary, fontWeight: '900', fontSize: 12 }}>TU RUTA SE ESTÁ ARMANDO</Body>
+            <Body style={{ color: t.secondary, fontSize: 12 }}>{step + 1} de {TOTAL} decisiones listas</Body>
+          </View>
+          <JourneyRoute compact completion={(step + 1) / TOTAL} labels={STEP_LABELS.slice(Math.max(0, step - 1), Math.max(0, step - 1) + 3)} />
+        </View>
         {/* ---------- Paso 1: Destino ---------- */}
         {step === 0 && (
           <>
@@ -645,14 +698,19 @@ export default function CrearScreen() {
         )}
 
         {/* ---------- Paso 8: Revisión ---------- */}
-        {step === 7 && <ReviewStep onEdit={setStep} />}
+        {step === 7 && <ReviewStep onEdit={(target) => { direction.current = target < step ? -1 : 1; setStep(target); }} />}
+        </Animated.View>
       </ScrollView>
 
       {/* Footer */}
       <View style={[styles.footer, { backgroundColor: t.surface, borderTopColor: t.border }]}>
         <View style={styles.footerInner}>
+          <View style={styles.footerMeta}>
+            <View style={[styles.savedDot, { backgroundColor: t.secondary }]} />
+            <Body muted style={{ fontSize: 11, fontWeight: '700' }}>Tus respuestas se guardan automáticamente</Body>
+          </View>
           <Button
-            title={step === TOTAL - 1 ? 'Crear mi itinerario' : 'Continuar'}
+            title={STEP_ACTIONS[step]}
             icon={step === TOTAL - 1 ? 'sparkles' : 'arrow-forward'}
             disabled={!canContinue()}
             onPress={next}
@@ -943,6 +1001,9 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.five,
     gap: Spacing.three,
   },
+  stepStage: { gap: Spacing.three },
+  routePreview: { borderRadius: Radius.lg, padding: 14, gap: 12, overflow: 'hidden' },
+  routePreviewCopy: { flexDirection: 'row', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' },
   stepIntro: { flexDirection: 'row', alignItems: 'flex-start', gap: 14, marginBottom: Spacing.one },
   stepIcon: { width: 48, height: 48, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
   stepTitleRow: { flexDirection: 'row', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 },
@@ -977,7 +1038,9 @@ const styles = StyleSheet.create({
   mustRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three, paddingVertical: Spacing.two },
   reviewRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, padding: Spacing.three },
   footer: { padding: Spacing.three, paddingTop: Spacing.two, borderTopWidth: 1, marginBottom: TAB_BAR_HEIGHT },
-  footerInner: { width: '100%', maxWidth: 760, alignSelf: 'center' },
+  footerInner: { width: '100%', maxWidth: 760, alignSelf: 'center', gap: 8 },
+  footerMeta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  savedDot: { width: 6, height: 6, borderRadius: 3 },
   boundaryCard: { gap: Spacing.three },
   boundaryHeading: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
   boundaryIcon: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },

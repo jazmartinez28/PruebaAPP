@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { Body, H1 } from '@/components/ui';
+import { JourneyRoute } from '@/components/journey-route';
 import { cityById } from '@/data/cities';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -75,6 +76,10 @@ export default function GenerandoScreen() {
           <Ionicons name="map-outline" size={52} color="#FFFFFF" />
         </View>
         <H1 style={{ color: '#fff', textAlign: 'center' }}>Armando tu viaje a {city?.name ?? 'destino'}…</H1>
+        <Body style={styles.promise}>Conectamos cada elección en una ruta que funcione de verdad.</Body>
+        <View style={styles.routeCard}>
+          <JourneyRoute dark labels={['Tu base', 'Mañana', 'Tarde', 'Regreso']} />
+        </View>
         <View style={{ height: Spacing.four }} />
 
         <View style={styles.stages}>
@@ -122,4 +127,6 @@ const styles = StyleSheet.create({
   },
   stages: { gap: Spacing.three, alignSelf: 'center' },
   stageRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three, minHeight: 24 },
+  promise: { color: 'rgba(255,255,255,0.78)', textAlign: 'center', alignSelf: 'center', maxWidth: 420 },
+  routeCard: { width: '100%', maxWidth: 430, alignSelf: 'center', marginTop: Spacing.three, padding: Spacing.three, borderRadius: Radius.lg, backgroundColor: 'rgba(0,0,0,0.16)' },
 });
