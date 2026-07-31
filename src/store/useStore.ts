@@ -8,7 +8,7 @@ import { mergeRuntimePlaces, placeById, setRuntimePlaces } from '@/data/places';
 import { generateItinerary } from '@/lib/generate';
 import { fetchCityPlaces } from '@/lib/place-provider';
 import { rescheduleDay } from '@/lib/trip';
-import type { Accommodation, Budget, Category, Draft, Pace, Place, Ticket, Trip, User } from '@/types';
+import type { Accommodation, Budget, Category, Draft, Pace, PackingCategory, Place, Ticket, Trip, User } from '@/types';
 
 const emptyDraft = (): Draft => ({
   accommodation: null,
@@ -47,6 +47,7 @@ type State = {
   setBudget: (b: Budget) => void;
   setAccommodation: (a: Accommodation) => void;
   loadCityCatalog: (cityId: string) => Promise<{ count: number; error?: string }>;
+  addManualMustSee: (input: { name: string; address?: string; url?: string }) => void;
 
   // trips
   createTripFromDraft: () => { id?: string; error?: 'limit' };
@@ -56,6 +57,10 @@ type State = {
   updateTripAccommodation: (tripId: string, accommodation: Accommodation) => void;
   addTicket: (tripId: string, ticket: Omit<Ticket, 'id' | 'createdAt'>) => void;
   removeTicket: (tripId: string, ticketId: string) => void;
+  addPackingItem: (tripId: string, label: string, category: PackingCategory, suggested?: boolean) => void;
+  updatePackingItem: (tripId: string, itemId: string, patch: { label?: string; category?: PackingCategory; packed?: boolean }) => void;
+  removePackingItem: (tripId: string, itemId: string) => void;
+  addPackingSuggestions: (tripId: string, items: Trip['packingItems']) => void;
 
   // edición del itinerario
   removeActivity: (tripId: string, activityId: string) => void;
@@ -169,6 +174,48 @@ export const useStore = create<State>()(
           };
         }
       },
+      addManualMustSee: (input) =>
+        set((s) => {
+          if (!s.draft.cityId || !input.name.trim()) return {};
+          const city = cityById(s.draft.cityId);
+          if (!city) return {};
+          const normalized = input.name.trim().toLowerCase();
+          const duplicate = [...s.externalPlaces].find(
+            (place) => place.cityId === city.id && place.name.toLowerCase() === normalized,
+          );
+          if (duplicate) {
+            return {
+              draft: {
+                ...s.draft,
+                mustSeeIds: s.draft.mustSeeIds.includes(duplicate.id)
+                  ? s.draft.mustSeeIds
+                  : [...s.draft.mustSeeIds, duplicate.id],
+              },
+            };
+          }
+          const place: Place = {
+            id: newId('manual'),
+            cityId: city.id,
+            name: input.name.trim(),
+            categories: ['local'],
+            lat: s.draft.accommodation?.lat ?? city.lat,
+            lng: s.draft.accommodation?.lng ?? city.lng,
+            zone: 'Ubicación por confirmar',
+            durationMin: 60,
+            price: 1,
+            rating: 0,
+            desc: 'Lugar agregado manualmente por el viajero.',
+            address: input.address?.trim() || undefined,
+            officialUrl: input.url?.trim() || undefined,
+            confident: false,
+            source: 'curated',
+          };
+          mergeRuntimePlaces([place]);
+          return {
+            externalPlaces: [...s.externalPlaces, place],
+            draft: { ...s.draft, mustSeeIds: [...s.draft.mustSeeIds, place.id] },
+          };
+        }),
 
       createTripFromDraft: () => {
         const { draft, trips, user } = get();
@@ -194,6 +241,7 @@ export const useStore = create<State>()(
           savedIds: [],
           removedIds: [],
           tickets: [],
+          packingItems: [],
           days,
           createdAt: Date.now(),
           updatedAt: Date.now(),
@@ -253,6 +301,50 @@ export const useStore = create<State>()(
               ? touch({ ...trip, tickets: (trip.tickets ?? []).filter((ticket) => ticket.id !== ticketId) })
               : trip,
           ),
+        })),
+      addPackingItem: (tripId, label, category, suggested = false) =>
+        set((s) => ({
+          trips: s.trips.map((trip) =>
+            trip.id === tripId
+              ? touch({
+                  ...trip,
+                  packingItems: [
+                    ...(trip.packingItems ?? []),
+                    { id: newId('pack'), label: label.trim(), category, packed: false, suggested },
+                  ],
+                })
+              : trip,
+          ),
+        })),
+      updatePackingItem: (tripId, itemId, patch) =>
+        set((s) => ({
+          trips: s.trips.map((trip) =>
+            trip.id === tripId
+              ? touch({
+                  ...trip,
+                  packingItems: (trip.packingItems ?? []).map((item) =>
+                    item.id === itemId ? { ...item, ...patch } : item,
+                  ),
+                })
+              : trip,
+          ),
+        })),
+      removePackingItem: (tripId, itemId) =>
+        set((s) => ({
+          trips: s.trips.map((trip) =>
+            trip.id === tripId
+              ? touch({ ...trip, packingItems: (trip.packingItems ?? []).filter((item) => item.id !== itemId) })
+              : trip,
+          ),
+        })),
+      addPackingSuggestions: (tripId, items) =>
+        set((s) => ({
+          trips: s.trips.map((trip) => {
+            if (trip.id !== tripId) return trip;
+            const existing = new Set((trip.packingItems ?? []).map((item) => item.label.toLowerCase()));
+            const additions = items.filter((item) => !existing.has(item.label.toLowerCase()));
+            return touch({ ...trip, packingItems: [...(trip.packingItems ?? []), ...additions] });
+          }),
         })),
 
       removeActivity: (tripId, activityId) =>
@@ -376,12 +468,17 @@ export const useStore = create<State>()(
       partialize: (s) => ({
         user: s.user,
         accounts: s.accounts,
+        draft: s.draft,
         trips: s.trips,
         externalPlaces: s.externalPlaces,
       }),
       onRehydrateStorage: () => (state) => {
         if (state) {
-          state.trips = state.trips.map((trip) => ({ ...trip, tickets: trip.tickets ?? [] }));
+          state.trips = state.trips.map((trip) => ({
+            ...trip,
+            tickets: trip.tickets ?? [],
+            packingItems: trip.packingItems ?? [],
+          }));
           setRuntimePlaces(state.externalPlaces ?? []);
           state.hydrated = true;
         }

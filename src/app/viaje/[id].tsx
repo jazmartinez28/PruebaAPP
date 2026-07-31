@@ -5,6 +5,7 @@ import { Linking, Platform, Pressable, ScrollView, StyleSheet, View } from 'reac
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CityImage } from '@/components/city-image';
+import { PackingList } from '@/components/packing-list';
 import { Sheet } from '@/components/sheet';
 import { AccommodationSheet, TicketEditorSheet, TransportSheet } from '@/components/trip-tools';
 import { Body, Button, Card, Chip, H2, Label } from '@/components/ui';
@@ -15,6 +16,7 @@ import { cityById } from '@/data/cities';
 import { placeById, placesByCity } from '@/data/places';
 import { useTheme } from '@/hooks/use-theme';
 import { purchaseUrlFor } from '@/lib/commerce';
+import { CATEGORY_VISUAL, categoryVisualFor } from '@/lib/category-style';
 import { fmtDate, fmtRange } from '@/lib/dates';
 import { fmtDist, legBetween, minToHHMM } from '@/lib/geo';
 import { tripStats } from '@/lib/generate';
@@ -24,12 +26,13 @@ import { RouteMap, type MapStop } from '@/components/route-map';
 import { useStore } from '@/store/useStore';
 import type { Activity, Place, Trip } from '@/types';
 
-type Tab = 'resumen' | 'itinerario' | 'mapa' | 'tickets' | 'lugares';
+type Tab = 'resumen' | 'itinerario' | 'mapa' | 'valija' | 'tickets' | 'lugares';
 const STATUS_LABEL = { proximo: 'Próximo', encurso: 'En curso', finalizado: 'Finalizado' } as const;
 const TAB_LABEL: Record<Tab, string> = {
   resumen: 'Resumen',
   itinerario: 'Plan',
   mapa: 'Mapa',
+  valija: 'Valija',
   tickets: 'Tickets',
   lugares: 'Lugares',
 };
@@ -107,8 +110,11 @@ export default function TripScreen() {
       </CityImage>
 
       {/* Pestañas internas */}
-      <View style={[styles.tabs, { backgroundColor: t.surface, borderBottomColor: t.border }]}>
-        {(['resumen', 'itinerario', 'mapa', 'tickets', 'lugares'] as Tab[]).map((k) => {
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={[styles.tabs, { backgroundColor: t.surface, borderBottomColor: t.border }]}>
+        {(['resumen', 'itinerario', 'mapa', 'valija', 'tickets', 'lugares'] as Tab[]).map((k) => {
           const on = tab === k;
           return (
             <Pressable key={k} onPress={() => setTab(k)} style={styles.tab}>
@@ -119,7 +125,7 @@ export default function TripScreen() {
             </Pressable>
           );
         })}
-      </View>
+      </ScrollView>
 
       <ScrollView contentContainerStyle={{ padding: Spacing.three, gap: Spacing.three, paddingBottom: 120 }}>
         {tab === 'resumen' && (
@@ -139,9 +145,13 @@ export default function TripScreen() {
             onAdd={(d) => setAddDay(d)}
             onTransport={(from, to) => setTransportLeg({ from, to })}
             onToast={showToast}
+            onMap={() => setTab('mapa')}
+            onReplace={setReplaceAct}
+            onMoveDay={setMoveAct}
           />
         )}
-        {tab === 'mapa' && <MapaTab trip={trip} day={day} setDay={setDay} onActivity={setDetailAct} />}
+        {tab === 'mapa' && <MapaTab trip={trip} day={day} setDay={setDay} onActivity={setDetailAct} onPlan={() => setTab('itinerario')} />}
+        {tab === 'valija' && <PackingList trip={trip} />}
         {tab === 'tickets' && <TicketsTab trip={trip} onOpenActivity={setDetailAct} />}
         {tab === 'lugares' && <LugaresTab trip={trip} onActivity={setDetailAct} />}
       </ScrollView>
@@ -233,7 +243,7 @@ function ResumenTab({
       const p = placeById(a.placeId);
       if (!p) return;
       idx++;
-      allStops.push({ id: a.id, lat: p.lat, lng: p.lng, name: p.name, index: idx, color: p.isMeal ? t.secondary : t.primary });
+      allStops.push({ id: a.id, lat: p.lat, lng: p.lng, name: p.name, index: idx, color: categoryVisualFor(p).color });
       if (p.needsBooking) bookings++;
       if (ai < d.activities.length - 1) {
         const np = placeById(d.activities[ai + 1].placeId);
@@ -339,6 +349,9 @@ function ItinerarioTab({
   onAdd,
   onTransport,
   onToast,
+  onMap,
+  onReplace,
+  onMoveDay,
 }: {
   trip: Trip;
   day: number;
@@ -347,14 +360,35 @@ function ItinerarioTab({
   onAdd: (d: number) => void;
   onTransport: (from: Place, to: Place) => void;
   onToast: (message: string, undo?: boolean) => void;
+  onMap: () => void;
+  onReplace: (activity: Activity) => void;
+  onMoveDay: (activity: Activity) => void;
 }) {
   const t = useTheme();
   const moveWithinDay = useStore((s) => s.moveActivityWithinDay);
+  const removeActivity = useStore((s) => s.removeActivity);
   const d = trip.days[day];
+  const hotelPlace: Place | null = trip.accommodation
+    ? {
+        id: 'accommodation',
+        cityId: trip.cityId,
+        name: trip.accommodation.name,
+        categories: ['local'],
+        lat: trip.accommodation.lat,
+        lng: trip.accommodation.lng,
+        zone: trip.accommodation.zone ?? 'Alojamiento',
+        durationMin: 0,
+        price: 0,
+        rating: 0,
+        desc: trip.accommodation.address ?? 'Base del viaje',
+        address: trip.accommodation.address,
+      }
+    : null;
 
   return (
     <>
       <DaySelector trip={trip} day={day} setDay={setDay} />
+      <ViewModeSwitch mode="plan" onPlan={() => {}} onMap={onMap} />
       {!d || d.activities.length === 0 ? (
         <Card style={{ alignItems: 'center', gap: 8, paddingVertical: Spacing.five }}>
           <Ionicons name="cafe-outline" size={32} color={t.textSecondary} />
@@ -365,6 +399,17 @@ function ItinerarioTab({
         <>
           <DayHeader day={d} index={day} />
           <View>
+            {hotelPlace && d.activities[0] && (
+              <>
+                <AccommodationTimelineRow accommodation={trip.accommodation!} label="Salida desde tu alojamiento" />
+                <TransportTimelineRow
+                  cityId={trip.cityId}
+                  from={hotelPlace}
+                  to={placeById(d.activities[0].placeId)!}
+                  onPress={() => onTransport(hotelPlace, placeById(d.activities[0].placeId)!)}
+                />
+              </>
+            )}
             {d.activities.map((a, i) => {
               const p = placeById(a.placeId);
               if (!p) return null;
@@ -381,6 +426,12 @@ function ItinerarioTab({
                     onMove={(delta) => {
                       moveWithinDay(trip.id, a.id, delta);
                       onToast(`Actividad movida ${delta < 0 ? 'más temprano' : 'más tarde'}`, true);
+                    }}
+                    onReplace={() => onReplace(a)}
+                    onMoveDay={() => onMoveDay(a)}
+                    onDelete={() => {
+                      removeActivity(trip.id, a.id);
+                      onToast('Actividad eliminada', true);
                     }}
                   />
                   {leg && (
@@ -411,11 +462,79 @@ function ItinerarioTab({
                 </View>
               );
             })}
+            {hotelPlace && d.activities.length > 0 && (
+              <>
+                <TransportTimelineRow
+                  cityId={trip.cityId}
+                  from={placeById(d.activities[d.activities.length - 1].placeId)!}
+                  to={hotelPlace}
+                  onPress={() => onTransport(placeById(d.activities[d.activities.length - 1].placeId)!, hotelPlace)}
+                />
+                <AccommodationTimelineRow accommodation={trip.accommodation!} label="Regreso al alojamiento" />
+              </>
+            )}
           </View>
           <Button title="Agregar lugar a este día" icon="add" variant="ghost" size="md" onPress={() => onAdd(day)} />
         </>
       )}
     </>
+  );
+}
+
+function AccommodationTimelineRow({
+  accommodation,
+  label,
+}: {
+  accommodation: NonNullable<Trip['accommodation']>;
+  label: string;
+}) {
+  const meta = CATEGORY_VISUAL.alojamiento;
+  return (
+    <View style={styles.actRow}>
+      <View style={{ width: 52 }} />
+      <View style={[styles.actDot, { backgroundColor: meta.color }]}>
+        <Ionicons name={meta.icon} size={12} color="#fff" />
+      </View>
+      <View style={[styles.hotelTimeline, { backgroundColor: meta.soft }]}>
+        <Ionicons name={meta.icon} size={20} color={meta.color} />
+        <View style={{ flex: 1 }}>
+          <Body style={{ color: meta.color, fontWeight: '900' }}>{label}</Body>
+          <Body numberOfLines={1} style={{ color: meta.color, fontSize: 12 }}>
+            {accommodation.name} · {accommodation.address ?? accommodation.zone ?? 'Base del viaje'}
+          </Body>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function TransportTimelineRow({
+  cityId,
+  from,
+  to,
+  onPress,
+}: {
+  cityId: string;
+  from: Place;
+  to: Place;
+  onPress: () => void;
+}) {
+  const meta = CATEGORY_VISUAL.traslado;
+  const leg = legBetween(from, to);
+  const transport = recommendedTransport(cityId, from, to);
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Ver traslado de ${from.name} a ${to.name}`}
+      onPress={onPress}
+      style={({ pressed }) => [styles.legRow, pressed && { opacity: 0.72 }]}>
+      <View style={{ width: 52, alignItems: 'center' }}><View style={[styles.legLine, { backgroundColor: meta.color }]} /></View>
+      <View style={[styles.legPill, { backgroundColor: meta.soft }]}>
+        <Ionicons name={transport.icon} size={14} color={meta.color} />
+        <Body style={{ fontSize: 12, color: meta.color, fontWeight: '800' }}>{transport.label} · {leg.label}</Body>
+        <Ionicons name="chevron-forward" size={13} color={meta.color} />
+      </View>
+    </Pressable>
   );
 }
 
@@ -438,6 +557,7 @@ function DayHeader({ day, index }: { day: Trip['days'][number]; index: number })
       <Body style={{ fontWeight: '800', fontSize: 18 }}>{fmtDate(day.date)}</Body>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.three, marginTop: 4 }}>
         <MiniStat icon="time" text={`${minToHHMM(startMin)}–${minToHHMM(endMin)}`} />
+        <MiniStat icon="location" text={`${acts.length} actividades`} />
         <MiniStat icon="walk" text={fmtDist(meters)} />
         <MiniStat icon="bus" text={`${travel} min traslados`} />
       </View>
@@ -452,6 +572,9 @@ function TimelineActivity({
   ticketCount,
   onPress,
   onMove,
+  onReplace,
+  onMoveDay,
+  onDelete,
 }: {
   activity: Activity;
   index: number;
@@ -459,11 +582,16 @@ function TimelineActivity({
   ticketCount: number;
   onPress: () => void;
   onMove: (delta: -1 | 1) => void;
+  onReplace: () => void;
+  onMoveDay: () => void;
+  onDelete: () => void;
 }) {
   const t = useTheme();
   const p = placeById(activity.placeId);
   if (!p) return null;
-  const color = p.isMeal ? t.secondary : t.primary;
+  const visual = categoryVisualFor(p);
+  const color = visual.color;
+  const statusLabel = activity.status === 'hecho' ? 'Completada' : activity.status === 'saltado' ? 'Cancelada' : activity.status === 'reservado' ? 'Reservada' : 'Pendiente';
   return (
     <View style={styles.actRow}>
       <View style={{ width: 52, alignItems: 'flex-end', paddingTop: 2 }}>
@@ -495,14 +623,25 @@ function TimelineActivity({
             </Pressable>
           </View>
         </View>
-        <Body muted style={{ fontSize: 13 }}>
-          {CATEGORY_LABEL[p.categories[0]]} · {activity.durationMin} min · {PRICE_LABEL(p.price)}
-        </Body>
+        <View style={styles.activityMeta}>
+          <View style={[styles.categoryBadge, { backgroundColor: visual.soft }]}>
+            <Ionicons name={visual.icon} size={14} color={visual.color} />
+            <Body style={{ color: visual.color, fontSize: 11, fontWeight: '900' }}>{visual.label}</Body>
+          </View>
+          <Body muted style={{ fontSize: 12 }}>{activity.durationMin} min · {PRICE_LABEL(p.price)}</Body>
+        </View>
         <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
           {p.needsBooking && <Tag color={t.warning} text="Reservar" />}
           {activity.note && <Tag color={t.warning} text="Verificar horario" />}
           {activity.mustSee && <Tag color={t.primary} text="Imprescindible" />}
           {ticketCount > 0 && <Tag color={t.secondary} text={`${ticketCount} ticket${ticketCount > 1 ? 's' : ''}`} />}
+          <Tag color={activity.status === 'hecho' ? t.secondary : activity.status === 'saltado' ? t.error : t.textSecondary} text={statusLabel} />
+        </View>
+        <View style={[styles.quickActions, { borderTopColor: t.border }]}>
+          <QuickActivityAction icon="create-outline" label="Editar" onPress={onPress} />
+          <QuickActivityAction icon="swap-horizontal-outline" label="Cambiar" onPress={onReplace} />
+          <QuickActivityAction icon="calendar-outline" label="Mover" onPress={onMoveDay} />
+          <QuickActivityAction icon="trash-outline" label="Quitar" onPress={onDelete} danger />
         </View>
       </Card>
       </Pressable>
@@ -510,20 +649,35 @@ function TimelineActivity({
   );
 }
 
+function QuickActivityAction({ icon, label, onPress, danger }: { icon: any; label: string; onPress: () => void; danger?: boolean }) {
+  const t = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={(event) => { event.stopPropagation(); onPress(); }}
+      style={({ pressed }) => [styles.quickAction, pressed && { opacity: 0.55 }]}>
+      <Ionicons name={icon} size={16} color={danger ? t.error : t.textSecondary} />
+      <Body style={{ fontSize: 10, fontWeight: '800', color: danger ? t.error : t.textSecondary }}>{label}</Body>
+    </Pressable>
+  );
+}
+
 /* ============================== Mapa ============================== */
 
-function MapaTab({ trip, day, setDay, onActivity }: { trip: Trip; day: number; setDay: (d: number) => void; onActivity: (a: Activity) => void }) {
+function MapaTab({ trip, day, setDay, onActivity, onPlan }: { trip: Trip; day: number; setDay: (d: number) => void; onActivity: (a: Activity) => void; onPlan: () => void }) {
   const t = useTheme();
   const [sel, setSel] = useState<string | undefined>();
   const d = trip.days[day];
   const stops: MapStop[] = (d?.activities ?? []).map((a, i) => {
     const p = placeById(a.placeId)!;
-    return { id: a.id, lat: p.lat, lng: p.lng, name: p.name, index: i + 1, color: p.isMeal ? t.secondary : t.primary };
+    return { id: a.id, lat: p.lat, lng: p.lng, name: p.name, index: i + 1, color: categoryVisualFor(p).color };
   });
 
   return (
     <>
       <DaySelector trip={trip} day={day} setDay={(x) => { setDay(x); setSel(undefined); }} />
+      <ViewModeSwitch mode="map" onPlan={onPlan} onMap={() => {}} />
       <Card style={{ padding: 0, overflow: 'hidden' }}>
         <RouteMap stops={stops} accommodation={trip.accommodation} selectedId={sel} onSelect={setSel} height={300} />
       </Card>
@@ -535,7 +689,7 @@ function MapaTab({ trip, day, setDay, onActivity }: { trip: Trip; day: number; s
           return (
             <Pressable key={a.id} onPress={() => setSel(a.id)} onLongPress={() => onActivity(a)}>
               <Card style={[styles.mapCard, on && { borderColor: t.primary, borderWidth: 2 }]}>
-                <View style={[styles.mapNum, { backgroundColor: p.isMeal ? t.secondary : t.primary }]}>
+                <View style={[styles.mapNum, { backgroundColor: categoryVisualFor(p).color }]}>
                   <Body style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>{i + 1}</Body>
                 </View>
                 <View style={{ flex: 1 }}>
@@ -551,6 +705,30 @@ function MapaTab({ trip, day, setDay, onActivity }: { trip: Trip; day: number; s
         })}
       </View>
     </>
+  );
+}
+
+function ViewModeSwitch({ mode, onPlan, onMap }: { mode: 'plan' | 'map'; onPlan: () => void; onMap: () => void }) {
+  const t = useTheme();
+  return (
+    <View style={[styles.viewSwitch, { backgroundColor: t.backgroundElement }]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ selected: mode === 'plan' }}
+        onPress={onPlan}
+        style={[styles.viewSwitchButton, mode === 'plan' && { backgroundColor: t.surface }]}>
+        <Ionicons name="list-outline" size={17} color={mode === 'plan' ? t.primary : t.textSecondary} />
+        <Body style={{ fontWeight: '800', fontSize: 12, color: mode === 'plan' ? t.primary : t.textSecondary }}>Itinerario</Body>
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ selected: mode === 'map' }}
+        onPress={onMap}
+        style={[styles.viewSwitchButton, mode === 'map' && { backgroundColor: t.surface }]}>
+        <Ionicons name="map-outline" size={17} color={mode === 'map' ? t.secondary : t.textSecondary} />
+        <Body style={{ fontWeight: '800', fontSize: 12, color: mode === 'map' ? t.secondary : t.textSecondary }}>Mapa</Body>
+      </Pressable>
+    </View>
   );
 }
 
@@ -1097,8 +1275,8 @@ const styles = StyleSheet.create({
   headerMeta: { flexDirection: 'row', gap: 8, marginTop: Spacing.two, flexWrap: 'wrap' },
   metaChip: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill },
   metaText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-  tabs: { flexDirection: 'row', borderBottomWidth: 1 },
-  tab: { flex: 1, alignItems: 'center', paddingVertical: 12 },
+  tabs: { flexDirection: 'row', borderBottomWidth: 1, paddingHorizontal: Spacing.two },
+  tab: { minWidth: 82, alignItems: 'center', paddingVertical: 12, paddingHorizontal: 8 },
   tabInd: { position: 'absolute', bottom: 0, height: 3, width: 28, borderRadius: 2 },
   statGrid: { flexDirection: 'row', gap: Spacing.two, flexWrap: 'wrap' },
   statBox: { flexGrow: 1, flexBasis: '22%', alignItems: 'center', gap: 3, paddingVertical: Spacing.three },
@@ -1118,12 +1296,19 @@ const styles = StyleSheet.create({
   tripToolIcon: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   actRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
   actDot: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
+  hotelTimeline: { flex: 1, minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: Radius.md, paddingHorizontal: Spacing.three },
+  activityMeta: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  categoryBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 5, borderRadius: Radius.pill },
+  quickActions: { flexDirection: 'row', borderTopWidth: 1, marginTop: 7, paddingTop: 8 },
+  quickAction: { flex: 1, minHeight: 42, alignItems: 'center', justifyContent: 'center', gap: 2 },
   legRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
   legLine: { width: 2, height: 22 },
   legPill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill },
   reorderActions: { flexDirection: 'column', gap: 4, paddingTop: 2 },
   reorderButton: { width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   mapCard: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  viewSwitch: { flexDirection: 'row', padding: 4, borderRadius: Radius.md, gap: 4 },
+  viewSwitchButton: { flex: 1, minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 12 },
   mapNum: { width: 30, height: 30, borderRadius: Radius.pill, alignItems: 'center', justifyContent: 'center' },
   countPill: { paddingHorizontal: 9, paddingVertical: 2, borderRadius: Radius.pill },
   placeRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, paddingVertical: Spacing.two },

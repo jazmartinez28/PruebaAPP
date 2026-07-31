@@ -47,9 +47,14 @@ export function RouteMap({
     });
     markersRef.current = {};
 
-    const pts: [number, number][] = stops.map((s) => [s.lat, s.lng]);
-    if (pts.length > 1) {
-      L.polyline(pts, { color: '#16A085', weight: 3, opacity: 0.7, dashArray: '2 8' }).addTo(map);
+    const routePts: [number, number][] = stops.map((s) => [s.lat, s.lng]);
+    if (accommodation && routePts.length) {
+      routePts.unshift([accommodation.lat, accommodation.lng]);
+      routePts.push([accommodation.lat, accommodation.lng]);
+    }
+    const pts: [number, number][] = [...routePts];
+    if (routePts.length > 1) {
+      L.polyline(routePts, { color: '#16A085', weight: 3, opacity: 0.7, dashArray: '2 8' }).addTo(map);
     }
 
     stops.forEach((s) => {
@@ -68,12 +73,11 @@ export function RouteMap({
     if (accommodation) {
       const icon = L.divIcon({
         className: '',
-        html: `<div style="width:22px;height:22px;border-radius:50%;background:#1D2733;color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;border:2px solid #fff">🏠</div>`,
-        iconSize: [22, 22],
-        iconAnchor: [11, 11],
+        html: `<div aria-label="Alojamiento" style="width:30px;height:30px;border-radius:10px;background:#344054;color:#fff;display:flex;align-items:center;justify-content:center;font:800 12px system-ui;border:2px solid #fff;box-shadow:0 2px 7px rgba(0,0,0,.25)">H</div>`,
+        iconSize: [30, 30],
+        iconAnchor: [15, 15],
       });
       L.marker([accommodation.lat, accommodation.lng], { icon }).addTo(map);
-      pts.push([accommodation.lat, accommodation.lng]);
     }
 
     if (pts.length) {

@@ -9,6 +9,7 @@ import { Calendar } from '@/components/calendar';
 import { CityImage } from '@/components/city-image';
 import { ProgressBar, TopBar } from '@/components/flow-ui';
 import { Body, Button, Card, Chip, H1, Label } from '@/components/ui';
+import { CITY_CURRENCY, REMOTE_CONFIG } from '@/constants/config';
 import { Radius, Spacing } from '@/constants/theme';
 import { BUDGETS, CATEGORY_LABEL, INTERESTS, PACES } from '@/data/catalog';
 import { CITIES, cityById } from '@/data/cities';
@@ -35,6 +36,7 @@ export default function CrearScreen() {
   const setAccommodation = useStore((s) => s.setAccommodation);
   const loadCityCatalog = useStore((s) => s.loadCityCatalog);
   const catalogStatus = useStore((s) => (s.draft.cityId ? s.catalogStatus[s.draft.cityId] : 'idle'));
+  const addManualMustSee = useStore((s) => s.addManualMustSee);
   useStore((s) => s.externalPlaces);
 
   const [step, setStep] = useState(0);
@@ -46,6 +48,10 @@ export default function CrearScreen() {
   const [hotelResults, setHotelResults] = useState<GeocodedAccommodation[]>([]);
   const [hotelLoading, setHotelLoading] = useState(false);
   const [hotelError, setHotelError] = useState<string | null>(null);
+  const [mustQuery, setMustQuery] = useState('');
+  const [manualName, setManualName] = useState('');
+  const [manualReference, setManualReference] = useState('');
+  const [showManual, setShowManual] = useState(false);
 
   const cityPlaces = draft.cityId ? placesByCity(draft.cityId) : [];
   const zones = useMemo(() => Array.from(new Set(cityPlaces.map((p) => p.zone))), [draft.cityId]);
@@ -326,20 +332,47 @@ export default function CrearScreen() {
             <Body muted>Lo usamos para ajustar restaurantes y actividades. No pedimos datos financieros.</Body>
             {BUDGETS.map((b) => {
               const sel = draft.budget === b.id;
+              const currency = CITY_CURRENCY[draft.cityId ?? ''] ?? 'USD';
+              const range =
+                b.id === 'noindica'
+                  ? null
+                  : REMOTE_CONFIG.budgetByCurrency[currency][b.id];
+              const fmtMoney = (value: number) =>
+                new Intl.NumberFormat('es', {
+                  style: 'currency',
+                  currency,
+                  maximumFractionDigits: 0,
+                }).format(value);
               return (
                 <Pressable key={b.id} onPress={() => setDraft({ budget: b.id as Budget })}>
-                  <Card style={[styles.optRow, sel && { borderColor: t.primary, borderWidth: 2 }]}>
+                  <Card style={[styles.budgetCard, sel && { borderColor: t.primary, borderWidth: 2 }]}>
                     <View style={{ flex: 1 }}>
-                      <Body style={{ fontWeight: '700' }}>{b.label}</Body>
+                      <View style={styles.budgetHeading}>
+                        <Body style={{ fontWeight: '900', fontSize: 16 }}>{b.label}</Body>
+                        {range && (
+                          <View style={[styles.budgetRange, { backgroundColor: sel ? t.primarySoft : t.background }]}>
+                            <Body style={{ color: sel ? t.primaryStrong : t.text, fontSize: 12, fontWeight: '900' }}>
+                              {fmtMoney(range[0])}–{fmtMoney(range[1])} / día
+                            </Body>
+                          </View>
+                        )}
+                      </View>
                       <Body muted style={{ fontSize: 13 }}>
                         {b.desc}
                       </Body>
+                      <Body style={{ fontSize: 12, marginTop: 7, lineHeight: 17 }}>{b.includes}</Body>
                     </View>
                     {sel && <Ionicons name="checkmark-circle" size={22} color={t.primary} />}
                   </Card>
                 </Pressable>
               );
             })}
+            <View style={[styles.budgetNotice, { backgroundColor: t.secondarySoft }]}>
+              <Ionicons name="information-circle-outline" size={19} color={t.secondary} />
+              <Body style={{ flex: 1, color: t.secondary, fontSize: 12 }}>
+                Referencias por persona. No incluyen alojamiento ni transporte de llegada al destino.
+              </Body>
+            </View>
           </>
         )}
 
@@ -348,6 +381,45 @@ export default function CrearScreen() {
           <>
             <H1>¿Algún lugar imprescindible?</H1>
             <Body muted>Marcá los que no te querés perder. Los vamos a respetar siempre. (Opcional)</Body>
+            <View style={[styles.search, { backgroundColor: t.surface, borderColor: t.border }]}>
+              <Ionicons name="search" size={19} color={t.textSecondary} />
+              <TextInput
+                accessibilityLabel="Buscar lugares imprescindibles"
+                value={mustQuery}
+                onChangeText={setMustQuery}
+                placeholder="Buscar museo, monumento o restaurante"
+                placeholderTextColor={t.textSecondary}
+                style={{ flex: 1, color: t.text, fontSize: 15 }}
+              />
+              {mustQuery.length > 0 && (
+                <Pressable accessibilityLabel="Limpiar búsqueda" hitSlop={8} onPress={() => setMustQuery('')}>
+                  <Ionicons name="close-circle" size={20} color={t.textSecondary} />
+                </Pressable>
+              )}
+            </View>
+            {draft.mustSeeIds.length > 0 && (
+              <View style={styles.selectedMust}>
+                <Body style={{ fontWeight: '900' }}>{draft.mustSeeIds.length} seleccionados</Body>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 7 }}>
+                  {draft.mustSeeIds.map((id) => {
+                    const place = cityPlaces.find((candidate) => candidate.id === id);
+                    if (!place) return null;
+                    return (
+                      <Pressable
+                        key={id}
+                        accessibilityLabel={`Quitar ${place.name}`}
+                        onPress={() => toggleMustSee(id)}
+                        style={[styles.selectedPlace, { backgroundColor: t.primarySoft }]}>
+                        <Body numberOfLines={1} style={{ color: t.primaryStrong, fontWeight: '800', fontSize: 12, maxWidth: 160 }}>
+                          {place.name}
+                        </Body>
+                        <Ionicons name="close" size={16} color={t.primaryStrong} />
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
             <View style={[styles.catalogInfo, { backgroundColor: t.secondarySoft }]}>
               <Ionicons
                 name={catalogStatus === 'loading' ? 'sync-outline' : 'location-outline'}
@@ -363,7 +435,12 @@ export default function CrearScreen() {
             <View style={{ gap: Spacing.two }}>
               {cityPlaces
                 .filter((p) => !p.isMeal)
+                .filter((p) =>
+                  !mustQuery.trim() ||
+                  `${p.name} ${p.zone} ${p.address ?? ''}`.toLowerCase().includes(mustQuery.trim().toLowerCase()),
+                )
                 .sort((a, b) => b.rating - a.rating)
+                .slice(0, mustQuery.trim() ? 30 : 18)
                 .map((p) => {
                   const sel = draft.mustSeeIds.includes(p.id);
                   return (
@@ -372,7 +449,7 @@ export default function CrearScreen() {
                         <View style={{ flex: 1 }}>
                           <Body style={{ fontWeight: '600' }}>{p.name}</Body>
                           <Body muted style={{ fontSize: 12 }}>
-                            {CATEGORY_LABEL[p.categories[0]]} · {p.zone}
+                            {CATEGORY_LABEL[p.categories[0]]} · {p.address ?? p.zone}
                           </Body>
                         </View>
                         <Ionicons
@@ -385,6 +462,54 @@ export default function CrearScreen() {
                   );
                 })}
             </View>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setShowManual((value) => !value)}
+              style={[styles.manualToggle, { borderColor: t.border, backgroundColor: t.surface }]}>
+              <Ionicons name="link-outline" size={20} color={t.primary} />
+              <View style={{ flex: 1 }}>
+                <Body style={{ fontWeight: '800' }}>Agregar dirección o enlace</Body>
+                <Body muted style={{ fontSize: 12 }}>Para ese lugar que todavía no aparece</Body>
+              </View>
+              <Ionicons name={showManual ? 'chevron-up' : 'chevron-down'} size={18} color={t.textSecondary} />
+            </Pressable>
+            {showManual && (
+              <View style={[styles.manualForm, { backgroundColor: t.surface, borderColor: t.border }]}>
+                <TextInput
+                  accessibilityLabel="Nombre del lugar"
+                  value={manualName}
+                  onChangeText={setManualName}
+                  placeholder="Nombre del lugar"
+                  placeholderTextColor={t.textSecondary}
+                  style={[styles.manualInput, { color: t.text, borderColor: t.border }]}
+                />
+                <TextInput
+                  accessibilityLabel="Dirección o enlace"
+                  value={manualReference}
+                  onChangeText={setManualReference}
+                  placeholder="Dirección o https://…"
+                  placeholderTextColor={t.textSecondary}
+                  autoCapitalize="none"
+                  style={[styles.manualInput, { color: t.text, borderColor: t.border }]}
+                />
+                <Button
+                  title="Agregar como imprescindible"
+                  icon="star-outline"
+                  size="md"
+                  disabled={!manualName.trim()}
+                  onPress={() => {
+                    addManualMustSee({
+                      name: manualName,
+                      address: manualReference.startsWith('http') ? undefined : manualReference,
+                      url: manualReference.startsWith('http') ? manualReference : undefined,
+                    });
+                    setManualName('');
+                    setManualReference('');
+                    setShowManual(false);
+                  }}
+                />
+              </View>
+            )}
           </>
         )}
 
@@ -459,6 +584,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     borderRadius: Radius.md,
   },
+  selectedMust: { gap: 8 },
+  selectedPlace: { minHeight: 38, flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: Radius.pill, paddingHorizontal: 11 },
+  manualToggle: { minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: 11, paddingHorizontal: Spacing.three, borderWidth: 1, borderRadius: Radius.md },
+  manualForm: { gap: Spacing.two, borderWidth: 1, borderRadius: Radius.md, padding: Spacing.three },
+  manualInput: { minHeight: 50, borderWidth: 1, borderRadius: Radius.md, paddingHorizontal: 13, fontSize: 15 },
+  budgetCard: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.two },
+  budgetHeading: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
+  budgetRange: { paddingHorizontal: 9, paddingVertical: 5, borderRadius: Radius.pill },
+  budgetNotice: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: Spacing.three, borderRadius: Radius.md },
   search: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, borderWidth: 1, borderRadius: Radius.pill, paddingHorizontal: Spacing.three, paddingVertical: 12 },
   cityCard: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three, borderWidth: 1.5, borderRadius: Radius.lg, padding: Spacing.two, paddingRight: Spacing.three },
   cityThumb: { width: 56, height: 56, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },

@@ -13,6 +13,7 @@ export type MapStop = { id: string; lat: number; lng: number; name: string; inde
  */
 export function RouteMap({
   stops,
+  accommodation,
   selectedId,
   onSelect,
   height = 260,
@@ -28,10 +29,10 @@ export function RouteMap({
   const H = height;
   const pad = 30;
 
-  if (!stops.length) return <View style={[styles.wrap, { height, backgroundColor: t.secondarySoft }]} />;
+  if (!stops.length && !accommodation) return <View style={[styles.wrap, { height, backgroundColor: t.secondarySoft }]} />;
 
-  const lats = stops.map((s) => s.lat);
-  const lngs = stops.map((s) => s.lng);
+  const lats = [...stops.map((s) => s.lat), ...(accommodation ? [accommodation.lat] : [])];
+  const lngs = [...stops.map((s) => s.lng), ...(accommodation ? [accommodation.lng] : [])];
   const minLat = Math.min(...lats);
   const maxLat = Math.max(...lats);
   const minLng = Math.min(...lngs);
@@ -39,15 +40,24 @@ export function RouteMap({
   const spanLat = maxLat - minLat || 0.001;
   const spanLng = maxLng - minLng || 0.001;
 
-  const px = (s: MapStop) => pad + ((s.lng - minLng) / spanLng) * (W - pad * 2);
-  const py = (s: MapStop) => pad + ((maxLat - s.lat) / spanLat) * (H - pad * 2);
+  const px = (s: { lng: number }) => pad + ((s.lng - minLng) / spanLng) * (W - pad * 2);
+  const py = (s: { lat: number }) => pad + ((maxLat - s.lat) / spanLat) * (H - pad * 2);
+  const routeStops = accommodation
+    ? [{ ...accommodation, id: 'hotel-start', index: 0, color: '#344054' }, ...stops, { ...accommodation, id: 'hotel-end', index: 0, color: '#344054' }]
+    : stops;
 
   return (
     <View style={[styles.wrap, { height, backgroundColor: t.secondarySoft }]}>
       <Svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`}>
-        {stops.slice(0, -1).map((s, i) => (
-          <Line key={`l${i}`} x1={px(s)} y1={py(s)} x2={px(stops[i + 1])} y2={py(stops[i + 1])} stroke={t.secondary} strokeWidth={2} strokeDasharray="2 6" opacity={0.6} />
+        {routeStops.slice(0, -1).map((s, i) => (
+          <Line key={`l${i}`} x1={px(s)} y1={py(s)} x2={px(routeStops[i + 1])} y2={py(routeStops[i + 1])} stroke={t.secondary} strokeWidth={2} strokeDasharray="2 6" opacity={0.6} />
         ))}
+        {accommodation && (
+          <>
+            <Circle cx={px(accommodation)} cy={py(accommodation)} r={14} fill="#344054" stroke="#fff" strokeWidth={2} />
+            <SvgText x={px(accommodation)} y={py(accommodation) + 4} fontSize={10} fontWeight="800" fill="#fff" textAnchor="middle">H</SvgText>
+          </>
+        )}
         {stops.map((s) => {
           const sel = s.id === selectedId;
           return (

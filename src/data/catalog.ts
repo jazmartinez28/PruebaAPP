@@ -38,12 +38,12 @@ export const PACES: { id: Pace; label: string; desc: string; icon: IonName; perD
   { id: 'intenso', label: 'Intenso', desc: 'Más actividades y menos pausas.', icon: 'flash', perDay: 6 },
 ];
 
-export const BUDGETS: { id: Budget; label: string; desc: string; maxTier: PriceTier }[] = [
-  { id: 'economico', label: 'Económico', desc: 'Prioriza lo gratis y barato.', maxTier: 1 },
-  { id: 'moderado', label: 'Moderado', desc: 'Un equilibrio de precios.', maxTier: 2 },
-  { id: 'comodo', label: 'Cómodo', desc: 'Sin fijarte tanto en el precio.', maxTier: 3 },
-  { id: 'premium', label: 'Premium', desc: 'Lo mejor de cada lugar.', maxTier: 3 },
-  { id: 'noindica', label: 'Prefiero no indicarlo', desc: 'Mezclamos opciones para todos.', maxTier: 3 },
+export const BUDGETS: { id: Budget; label: string; desc: string; includes: string; maxTier: PriceTier }[] = [
+  { id: 'economico', label: 'Económico', desc: 'Cuidar el gasto sin perderte la ciudad.', includes: 'Actividades gratuitas o económicas y comidas accesibles.', maxTier: 1 },
+  { id: 'moderado', label: 'Moderado', desc: 'Equilibrio entre experiencias y precio.', includes: 'Opciones gratuitas y pagas, con restaurantes de precio medio.', maxTier: 2 },
+  { id: 'comodo', label: 'Cómodo', desc: 'Más libertad para elegir experiencias.', includes: 'Más actividades pagas y restaurantes mejor valorados.', maxTier: 3 },
+  { id: 'premium', label: 'Premium', desc: 'Priorizar calidad y experiencias especiales.', includes: 'Experiencias exclusivas, restaurantes destacados y poca restricción de precio.', maxTier: 3 },
+  { id: 'noindica', label: 'Prefiero no indicarlo', desc: 'Mezclamos opciones para todos.', includes: 'No condicionamos el itinerario por precio.', maxTier: 3 },
 ];
 
 export const PRICE_LABEL = (tier: PriceTier) => (tier === 0 ? 'Gratis' : '$'.repeat(tier));

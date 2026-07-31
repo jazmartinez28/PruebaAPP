@@ -49,6 +49,14 @@ export type Place = {
 };
 
 export type ActivityStatus = 'plan' | 'reservado' | 'hecho' | 'saltado';
+export type PackingCategory = 'ropa' | 'documentacion' | 'higiene' | 'tecnologia' | 'medicamentos' | 'otros';
+export type PackingItem = {
+  id: string;
+  label: string;
+  category: PackingCategory;
+  packed: boolean;
+  suggested?: boolean;
+};
 
 /** Actividad = un lugar ubicado en un día y horario dentro del itinerario. */
 export type Activity = {
@@ -105,6 +113,7 @@ export type Trip = {
   savedIds: string[]; // guardados
   removedIds: string[]; // descartados
   tickets: Ticket[];
+  packingItems: PackingItem[];
   days: Day[];
   createdAt: number;
   updatedAt: number;
