@@ -5,6 +5,7 @@ import { Linking, Platform, Pressable, ScrollView, StyleSheet, TextInput, View, 
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CityImage } from '@/components/city-image';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PackingList } from '@/components/packing-list';
 import { Sheet } from '@/components/sheet';
 import { AccommodationSheet, TicketEditorSheet, TransportSheet } from '@/components/trip-tools';
@@ -67,7 +68,11 @@ export default function TripScreen() {
   const [ticketActivity, setTicketActivity] = useState<Activity | null>(null);
   const [editActivity, setEditActivity] = useState<Activity | null>(null);
   const [editHotel, setEditHotel] = useState(action === 'hotel');
+  const [pendingDeleteAct, setPendingDeleteAct] = useState<Activity | null>(null);
+  const [confirmTripDelete, setConfirmTripDelete] = useState(false);
   const [toast, setToast] = useState<{ msg: string; undo?: boolean } | null>(null);
+  const removeActivity = useStore((s) => s.removeActivity);
+  const deleteTrip = useStore((s) => s.deleteTrip);
 
   if (!trip) {
     return (
@@ -94,7 +99,10 @@ export default function TripScreen() {
         <SafeAreaView edges={['top']}>
           <View style={styles.headerTop}>
             <IconCircle icon="chevron-back" onPress={() => router.canGoBack() ? router.back() : router.replace('/viajes')} />
-            <IconCircle icon="share-social" onPress={() => setShare(true)} />
+            <View style={{ flexDirection: 'row', gap: Spacing.two }}>
+              <IconCircle icon="share-social" onPress={() => setShare(true)} />
+              <IconCircle icon="trash-outline" onPress={() => setConfirmTripDelete(true)} />
+            </View>
           </View>
           <View style={{ paddingHorizontal: Spacing.three, paddingBottom: Spacing.three }}>
             <Ionicons name="location-outline" size={34} color="#FFFFFF" />
@@ -188,6 +196,7 @@ export default function TripScreen() {
         onReplace={(a) => { setDetailAct(null); setReplaceAct(a); }}
         onMove={(a) => { setDetailAct(null); setMoveAct(a); }}
         onTicket={(a) => { setDetailAct(null); setTicketActivity(a); }}
+        onRequestDelete={(a) => { setDetailAct(null); setPendingDeleteAct(a); }}
         onToast={showToast}
       />
 
@@ -239,6 +248,50 @@ export default function TripScreen() {
         activity={editActivity}
         onClose={() => setEditActivity(null)}
         onSaved={() => { setEditActivity(null); showToast('Actividad actualizada', true); }}
+      />
+
+      {/* Confirmación: eliminar actividad */}
+      <ConfirmDialog
+        visible={!!pendingDeleteAct}
+        destructive
+        icon="trash"
+        title={
+          pendingDeleteAct
+            ? `¿Eliminar ${placeById(pendingDeleteAct.placeId)?.name ?? 'esta actividad'} del itinerario?`
+            : ''
+        }
+        message={
+          pendingDeleteAct
+            ? `Esta actividad se quitará del Día ${
+                trip.days.findIndex((d) => d.activities.some((a) => a.id === pendingDeleteAct.id)) + 1
+              } y el recorrido podrá necesitar una reorganización. Vas a poder deshacerlo.`
+            : undefined
+        }
+        confirmLabel="Eliminar"
+        onCancel={() => setPendingDeleteAct(null)}
+        onConfirm={() => {
+          if (pendingDeleteAct) {
+            removeActivity(trip.id, pendingDeleteAct.id);
+            showToast('Actividad eliminada', true);
+          }
+          setPendingDeleteAct(null);
+        }}
+      />
+
+      {/* Confirmación: eliminar viaje completo */}
+      <ConfirmDialog
+        visible={confirmTripDelete}
+        destructive
+        icon="trash"
+        title="¿Eliminar este viaje?"
+        message={`${trip.cityName} · ${fmtRange(trip.startDate, trip.endDate)}. Se eliminará el itinerario completo, los tickets y la valija. Esta acción no se puede deshacer.`}
+        confirmLabel="Eliminar viaje"
+        onCancel={() => setConfirmTripDelete(false)}
+        onConfirm={() => {
+          setConfirmTripDelete(false);
+          deleteTrip(trip.id);
+          router.replace('/viajes');
+        }}
       />
     </View>
   );
@@ -1013,6 +1066,7 @@ function ActivityDetailSheet({
   onReplace,
   onMove,
   onTicket,
+  onRequestDelete,
   onToast,
 }: {
   trip: Trip;
@@ -1021,10 +1075,10 @@ function ActivityDetailSheet({
   onReplace: (a: Activity) => void;
   onMove: (a: Activity) => void;
   onTicket: (a: Activity) => void;
+  onRequestDelete: (a: Activity) => void;
   onToast: (m: string, undo?: boolean) => void;
 }) {
   const t = useTheme();
-  const removeActivity = useStore((s) => s.removeActivity);
   const toggleSaved = useStore((s) => s.toggleSaved);
   const p = activity ? placeById(activity.placeId) : null;
   const city = cityById(trip.cityId);
@@ -1112,7 +1166,7 @@ function ActivityDetailSheet({
         <Action icon={saved ? 'bookmark' : 'bookmark-outline'} label={saved ? 'Guardado' : 'Guardar'} onPress={() => { toggleSaved(trip.id, p.id); onToast(saved ? 'Quitado de guardados' : 'Lugar guardado'); }} />
         <Action icon="map" label="Abrir en Maps" onPress={openMaps} />
         <Action icon="ticket-outline" label="Guardar ticket" onPress={() => onTicket(activity)} />
-        <Action icon="trash" label="Eliminar" danger onPress={() => { removeActivity(trip.id, activity.id); onClose(); onToast('Actividad eliminada', true); }} />
+        <Action icon="trash" label="Eliminar" danger onPress={() => onRequestDelete(activity)} />
       </View>
 
       <Body muted style={{ fontSize: 11, marginTop: Spacing.three, textAlign: 'center' }}>
