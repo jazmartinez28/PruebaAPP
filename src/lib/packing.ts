@@ -9,6 +9,16 @@ export const PACKING_CATEGORIES: Record<PackingCategory, { label: string; icon: 
   otros: { label: 'Otros', icon: 'apps-outline', color: '#667085' },
 };
 
+export function seasonalClimateLabel(trip: Trip) {
+  const month = new Date(`${trip.startDate}T12:00:00`).getMonth();
+  const southern = trip.cityId === 'buenosaires';
+  const summer = southern ? month >= 11 || month <= 2 : month >= 5 && month <= 8;
+  const winter = southern ? month >= 5 && month <= 8 : month === 11 || month <= 1;
+  if (summer) return { label: 'Época cálida · ropa liviana y protección solar', icon: 'sunny-outline' as const };
+  if (winter) return { label: 'Época fría · conviene vestirse por capas', icon: 'snow-outline' as const };
+  return { label: 'Entretiempo · llevá una capa impermeable', icon: 'rainy-outline' as const };
+}
+
 const item = (id: string, label: string, category: PackingCategory): PackingItem => ({
   id: `suggested-${id}`,
   label,

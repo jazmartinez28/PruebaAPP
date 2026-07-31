@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { Body, Button, H2, Label } from '@/components/ui';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { PACKING_CATEGORIES, packingSuggestions } from '@/lib/packing';
+import { PACKING_CATEGORIES, packingSuggestions, seasonalClimateLabel } from '@/lib/packing';
 import { useStore } from '@/store/useStore';
 import type { PackingCategory, Trip } from '@/types';
 
@@ -21,6 +21,7 @@ export function PackingList({ trip }: { trip: Trip }) {
   const items = trip.packingItems ?? [];
   const packed = items.filter((item) => item.packed).length;
   const progress = items.length ? packed / items.length : 0;
+  const climate = seasonalClimateLabel(trip);
   const grouped = useMemo(
     () =>
       (Object.keys(PACKING_CATEGORIES) as PackingCategory[])
@@ -46,6 +47,10 @@ export function PackingList({ trip }: { trip: Trip }) {
         </Body>
         <View style={[styles.progressTrack, { backgroundColor: t.border }]}>
           <View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%`, backgroundColor: t.secondary }]} />
+        </View>
+        <View style={[styles.climateNote, { backgroundColor: t.secondarySoft }]}>
+          <Ionicons name={climate.icon} size={17} color={t.secondary} />
+          <Body style={{ flex: 1, color: t.secondary, fontSize: 12, fontWeight: '800' }}>{climate.label}</Body>
         </View>
       </View>
 
@@ -165,6 +170,7 @@ export function PackingList({ trip }: { trip: Trip }) {
 const styles = StyleSheet.create({
   progressTrack: { height: 8, borderRadius: 4, overflow: 'hidden', marginTop: 13 },
   progressFill: { height: 8, borderRadius: 4 },
+  climateNote: { alignSelf: 'stretch', minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 11, marginTop: 10, borderRadius: Radius.md },
   empty: { alignItems: 'center', gap: 9, borderRadius: Radius.lg, padding: Spacing.four },
   emptyIcon: { width: 56, height: 56, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   composer: { borderWidth: 1, borderRadius: Radius.lg, padding: Spacing.three, gap: Spacing.two },

@@ -69,6 +69,7 @@ type State = {
   moveActivityToDay: (tripId: string, activityId: string, toDayIndex: number) => void;
   moveActivityWithinDay: (tripId: string, activityId: string, delta: -1 | 1) => void;
   setActivityStatus: (tripId: string, activityId: string, status: Trip['days'][number]['activities'][number]['status']) => void;
+  updateActivityDetails: (tripId: string, activityId: string, patch: { startMin?: number; durationMin?: number; status?: Trip['days'][number]['activities'][number]['status']; note?: string }) => void;
 };
 
 let idc = 0;
@@ -179,6 +180,9 @@ export const useStore = create<State>()(
           if (!s.draft.cityId || !input.name.trim()) return {};
           const city = cityById(s.draft.cityId);
           if (!city) return {};
+          const coordinates = input.url?.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+          const parsedLat = coordinates ? Number(coordinates[1]) : undefined;
+          const parsedLng = coordinates ? Number(coordinates[2]) : undefined;
           const normalized = input.name.trim().toLowerCase();
           const duplicate = [...s.externalPlaces].find(
             (place) => place.cityId === city.id && place.name.toLowerCase() === normalized,
@@ -198,16 +202,16 @@ export const useStore = create<State>()(
             cityId: city.id,
             name: input.name.trim(),
             categories: ['local'],
-            lat: s.draft.accommodation?.lat ?? city.lat,
-            lng: s.draft.accommodation?.lng ?? city.lng,
-            zone: 'Ubicación por confirmar',
+            lat: parsedLat ?? s.draft.accommodation?.lat ?? city.lat,
+            lng: parsedLng ?? s.draft.accommodation?.lng ?? city.lng,
+            zone: parsedLat != null ? 'Ubicación confirmada desde el enlace' : 'Ubicación por confirmar',
             durationMin: 60,
             price: 1,
             rating: 0,
             desc: 'Lugar agregado manualmente por el viajero.',
             address: input.address?.trim() || undefined,
             officialUrl: input.url?.trim() || undefined,
-            confident: false,
+            confident: parsedLat != null,
             source: 'curated',
           };
           mergeRuntimePlaces([place]);
@@ -458,6 +462,26 @@ export const useStore = create<State>()(
                     ...d,
                     activities: d.activities.map((a) => (a.id === activityId ? { ...a, status } : a)),
                   })),
+                }),
+          ),
+        })),
+      updateActivityDetails: (tripId, activityId, patch) =>
+        set((s) => ({
+          _undo: snapOf(s, tripId),
+          trips: s.trips.map((trip) =>
+            trip.id !== tripId
+              ? trip
+              : touch({
+                  ...trip,
+                  days: trip.days.map((day) => {
+                    if (!day.activities.some((activity) => activity.id === activityId)) return day;
+                    const activities = day.activities.map((activity) =>
+                      activity.id === activityId ? { ...activity, ...patch } : activity,
+                    );
+                    return patch.startMin != null
+                      ? { ...day, activities: activities.sort((a, b) => a.startMin - b.startMin) }
+                      : rescheduleDay({ ...day, activities });
+                  }),
                 }),
           ),
         })),

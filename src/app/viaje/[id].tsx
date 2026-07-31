@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
-import { Linking, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { Linking, Platform, Pressable, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CityImage } from '@/components/city-image';
@@ -46,6 +46,7 @@ export default function TripScreen() {
   const trip = useStore((s) => s.trips.find((t) => t.id === id));
   const t = useTheme();
   const router = useRouter();
+  const { width } = useWindowDimensions();
 
   const [tab, setTab] = useState<Tab>(
     initialTab && initialTab in TAB_LABEL ? (initialTab as Tab) : 'resumen',
@@ -58,6 +59,7 @@ export default function TripScreen() {
   const [share, setShare] = useState(false);
   const [transportLeg, setTransportLeg] = useState<{ from: Place; to: Place } | null>(null);
   const [ticketActivity, setTicketActivity] = useState<Activity | null>(null);
+  const [editActivity, setEditActivity] = useState<Activity | null>(null);
   const [editHotel, setEditHotel] = useState(action === 'hotel');
   const [toast, setToast] = useState<{ msg: string; undo?: boolean } | null>(null);
 
@@ -127,7 +129,7 @@ export default function TripScreen() {
         })}
       </ScrollView>
 
-      <ScrollView contentContainerStyle={{ padding: Spacing.three, gap: Spacing.three, paddingBottom: 120 }}>
+      <ScrollView contentContainerStyle={[styles.tripContent, { paddingHorizontal: width >= 760 ? Spacing.five : Spacing.three }]}>
         {tab === 'resumen' && (
           <ResumenTab
             trip={trip}
@@ -148,6 +150,7 @@ export default function TripScreen() {
             onMap={() => setTab('mapa')}
             onReplace={setReplaceAct}
             onMoveDay={setMoveAct}
+            onEdit={setEditActivity}
           />
         )}
         {tab === 'mapa' && <MapaTab trip={trip} day={day} setDay={setDay} onActivity={setDetailAct} onPlan={() => setTab('itinerario')} />}
@@ -212,6 +215,12 @@ export default function TripScreen() {
         visible={editHotel}
         onClose={() => setEditHotel(false)}
         onSaved={() => { setEditHotel(false); showToast('Alojamiento actualizado'); }}
+      />
+      <ActivityEditSheet
+        trip={trip}
+        activity={editActivity}
+        onClose={() => setEditActivity(null)}
+        onSaved={() => { setEditActivity(null); showToast('Actividad actualizada', true); }}
       />
     </View>
   );
@@ -352,6 +361,7 @@ function ItinerarioTab({
   onMap,
   onReplace,
   onMoveDay,
+  onEdit,
 }: {
   trip: Trip;
   day: number;
@@ -363,6 +373,7 @@ function ItinerarioTab({
   onMap: () => void;
   onReplace: (activity: Activity) => void;
   onMoveDay: (activity: Activity) => void;
+  onEdit: (activity: Activity) => void;
 }) {
   const t = useTheme();
   const moveWithinDay = useStore((s) => s.moveActivityWithinDay);
@@ -397,7 +408,7 @@ function ItinerarioTab({
         </Card>
       ) : (
         <>
-          <DayHeader day={d} index={day} />
+          <DayHeader day={d} index={day} accommodation={trip.accommodation} />
           <View>
             {hotelPlace && d.activities[0] && (
               <>
@@ -433,6 +444,7 @@ function ItinerarioTab({
                       removeActivity(trip.id, a.id);
                       onToast('Actividad eliminada', true);
                     }}
+                    onEdit={() => onEdit(a)}
                   />
                   {leg && (
                     <Pressable
@@ -538,7 +550,7 @@ function TransportTimelineRow({
   );
 }
 
-function DayHeader({ day, index }: { day: Trip['days'][number]; index: number }) {
+function DayHeader({ day, index, accommodation }: { day: Trip['days'][number]; index: number; accommodation: Trip['accommodation'] }) {
   const t = useTheme();
   const acts = day.activities;
   const startMin = acts[0]?.startMin ?? 0;
@@ -551,6 +563,21 @@ function DayHeader({ day, index }: { day: Trip['days'][number]; index: number })
     const np = acts[i + 1] ? placeById(acts[i + 1].placeId) : null;
     if (p && np) { const l = legBetween(p, np); meters += l.meters; travel += l.minutes; }
   });
+  if (accommodation && acts.length) {
+    const hotel = { lat: accommodation.lat, lng: accommodation.lng };
+    const first = placeById(acts[0].placeId);
+    const lastPlace = placeById(acts[acts.length - 1].placeId);
+    if (first) {
+      const leg = legBetween(hotel, first);
+      meters += leg.meters;
+      travel += leg.minutes;
+    }
+    if (lastPlace) {
+      const leg = legBetween(lastPlace, hotel);
+      meters += leg.meters;
+      travel += leg.minutes;
+    }
+  }
   return (
     <Card style={{ gap: 6 }}>
       <Label style={{ color: t.secondary }}>Día {index + 1} · {day.zone}</Label>
@@ -575,6 +602,7 @@ function TimelineActivity({
   onReplace,
   onMoveDay,
   onDelete,
+  onEdit,
 }: {
   activity: Activity;
   index: number;
@@ -585,6 +613,7 @@ function TimelineActivity({
   onReplace: () => void;
   onMoveDay: () => void;
   onDelete: () => void;
+  onEdit: () => void;
 }) {
   const t = useTheme();
   const p = placeById(activity.placeId);
@@ -638,7 +667,7 @@ function TimelineActivity({
           <Tag color={activity.status === 'hecho' ? t.secondary : activity.status === 'saltado' ? t.error : t.textSecondary} text={statusLabel} />
         </View>
         <View style={[styles.quickActions, { borderTopColor: t.border }]}>
-          <QuickActivityAction icon="create-outline" label="Editar" onPress={onPress} />
+          <QuickActivityAction icon="create-outline" label="Editar" onPress={onEdit} />
           <QuickActivityAction icon="swap-horizontal-outline" label="Cambiar" onPress={onReplace} />
           <QuickActivityAction icon="calendar-outline" label="Mover" onPress={onMoveDay} />
           <QuickActivityAction icon="trash-outline" label="Quitar" onPress={onDelete} danger />
@@ -901,6 +930,9 @@ function LugaresTab({ trip, onActivity }: { trip: Trip; onActivity: (a: Activity
           return (
             <Pressable key={a.id} onPress={() => onActivity(a)}>
               <Card style={styles.placeRow}>
+                <View style={[styles.placeCategoryIcon, { backgroundColor: categoryVisualFor(p).soft }]}>
+                  <Ionicons name={categoryVisualFor(p).icon} size={18} color={categoryVisualFor(p).color} />
+                </View>
                 <View style={{ flex: 1 }}>
                   <Body style={{ fontWeight: '600' }}>{p.name}</Body>
                   <Body muted style={{ fontSize: 12 }}>{CATEGORY_LABEL[p.categories[0]]} · {p.zone}</Body>
@@ -967,6 +999,7 @@ function ActivityDetailSheet({
   if (!activity || !p) return <Sheet visible={false} onClose={onClose}>{null}</Sheet>;
 
   const saved = trip.savedIds.includes(p.id);
+  const visual = categoryVisualFor(p);
   const purchaseUrl = purchaseUrlFor(p);
   const openMaps = () => {
     const url = Platform.select({
@@ -987,7 +1020,10 @@ function ActivityDetailSheet({
       <CityImage city={city} scrim={0.25} style={styles.detailHero} />
 
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: Spacing.three, flexWrap: 'wrap' }}>
-        <Tag color={t.primary} text={CATEGORY_LABEL[p.categories[0]]} />
+        <View style={[styles.categoryBadge, { backgroundColor: visual.soft }]}>
+          <Ionicons name={visual.icon} size={14} color={visual.color} />
+          <Body style={{ color: visual.color, fontSize: 11, fontWeight: '900' }}>{visual.label}</Body>
+        </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
           <Ionicons name="star" size={14} color={t.warning} />
           <Body style={{ fontWeight: '700', fontSize: 13 }}>{p.rating.toFixed(1)}</Body>
@@ -1050,6 +1086,111 @@ function ActivityDetailSheet({
       <Body muted style={{ fontSize: 11, marginTop: Spacing.three, textAlign: 'center' }}>
         Fuente: {p.source === 'openstreetmap' ? 'OpenStreetMap' : 'selección curada'} · Verificá horarios y precios en el sitio oficial
       </Body>
+    </Sheet>
+  );
+}
+
+function ActivityEditSheet({
+  trip,
+  activity,
+  onClose,
+  onSaved,
+}: {
+  trip: Trip;
+  activity: Activity | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const t = useTheme();
+  const update = useStore((s) => s.updateActivityDetails);
+  const [time, setTime] = useState('');
+  const [duration, setDuration] = useState('');
+  const [status, setStatus] = useState<Activity['status']>('plan');
+  const [error, setError] = useState<string | null>(null);
+  const p = activity ? placeById(activity.placeId) : undefined;
+
+  useEffect(() => {
+    if (!activity) return;
+    setTime(minToHHMM(activity.startMin));
+    setDuration(String(activity.durationMin));
+    setStatus(activity.status);
+    setError(null);
+  }, [activity]);
+
+  const save = () => {
+    if (!activity) return;
+    const match = time.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+    const parsedDuration = Number(duration);
+    if (!match || !Number.isFinite(parsedDuration) || parsedDuration < 15 || parsedDuration > 720) {
+      setError('Usá una hora válida y una duración entre 15 y 720 minutos.');
+      return;
+    }
+    update(trip.id, activity.id, {
+      startMin: Number(match[1]) * 60 + Number(match[2]),
+      durationMin: Math.round(parsedDuration),
+      status,
+    });
+    onSaved();
+  };
+
+  return (
+    <Sheet visible={Boolean(activity)} onClose={onClose} title={p ? `Editar · ${p.name}` : 'Editar actividad'}>
+      {activity && (
+        <View style={{ gap: Spacing.three }}>
+          <View style={styles.editFields}>
+            <View style={{ flex: 1, gap: 6 }}>
+              <Label>Hora de inicio</Label>
+              <TextInput
+                accessibilityLabel="Hora de inicio"
+                value={time}
+                onChangeText={setTime}
+                placeholder="09:30"
+                keyboardType="numbers-and-punctuation"
+                placeholderTextColor={t.textSecondary}
+                style={[styles.editInput, { color: t.text, borderColor: error ? t.error : t.border }]}
+              />
+            </View>
+            <View style={{ flex: 1, gap: 6 }}>
+              <Label>Duración</Label>
+              <TextInput
+                accessibilityLabel="Duración en minutos"
+                value={duration}
+                onChangeText={setDuration}
+                placeholder="90 min"
+                keyboardType="number-pad"
+                placeholderTextColor={t.textSecondary}
+                style={[styles.editInput, { color: t.text, borderColor: error ? t.error : t.border }]}
+              />
+            </View>
+          </View>
+          <View style={{ gap: 7 }}>
+            <Label>Estado</Label>
+            <View style={styles.statusChoices}>
+              {([
+                ['plan', 'Pendiente', 'time-outline'],
+                ['reservado', 'Reservada', 'bookmark-outline'],
+                ['hecho', 'Completada', 'checkmark-circle-outline'],
+                ['saltado', 'Cancelada', 'close-circle-outline'],
+              ] as const).map(([value, label, icon]) => (
+                <Pressable
+                  key={value}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: status === value }}
+                  onPress={() => setStatus(value)}
+                  style={[
+                    styles.statusChoice,
+                    { borderColor: status === value ? t.secondary : t.border, backgroundColor: status === value ? t.secondarySoft : t.surface },
+                  ]}>
+                  <Ionicons name={icon} size={17} color={status === value ? t.secondary : t.textSecondary} />
+                  <Body style={{ fontSize: 11, fontWeight: '800', color: status === value ? t.secondary : t.textSecondary }}>{label}</Body>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+          {error && <Body style={{ color: t.error, fontSize: 12 }}>{error}</Body>}
+          <Button title="Guardar cambios" icon="checkmark" onPress={save} />
+        </View>
+      )}
     </Sheet>
   );
 }
@@ -1268,6 +1409,7 @@ function ToastBar({ toast, onUndo, onClose }: { toast: { msg: string; undo?: boo
 }
 
 const styles = StyleSheet.create({
+  tripContent: { width: '100%', maxWidth: 920, alignSelf: 'center', gap: Spacing.three, paddingTop: Spacing.three, paddingBottom: 120 },
   header: { paddingBottom: 4 },
   headerTop: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: Spacing.three, paddingTop: Spacing.one },
   headerIcon: { width: 38, height: 38, borderRadius: Radius.pill, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center' },
@@ -1312,6 +1454,7 @@ const styles = StyleSheet.create({
   mapNum: { width: 30, height: 30, borderRadius: Radius.pill, alignItems: 'center', justifyContent: 'center' },
   countPill: { paddingHorizontal: 9, paddingVertical: 2, borderRadius: Radius.pill },
   placeRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, paddingVertical: Spacing.two },
+  placeCategoryIcon: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   detailHero: { height: 120, borderRadius: Radius.lg, alignItems: 'center', justifyContent: 'center', marginTop: Spacing.one },
   bookingPanel: {
     flexDirection: 'row',
@@ -1324,6 +1467,10 @@ const styles = StyleSheet.create({
   bookingIcon: { width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   bookingLink: { width: 42, height: 42, borderRadius: 13, backgroundColor: '#16A085', alignItems: 'center', justifyContent: 'center' },
   actionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two, marginTop: Spacing.four },
+  editFields: { flexDirection: 'row', gap: Spacing.two },
+  editInput: { minHeight: 52, borderWidth: 1.5, borderRadius: Radius.md, paddingHorizontal: 13, fontSize: 16 },
+  statusChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  statusChoice: { minHeight: 44, flexGrow: 1, flexBasis: '46%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderRadius: Radius.md, paddingHorizontal: 9 },
   action: { width: '31%', flexGrow: 1, alignItems: 'center', gap: 6, paddingVertical: Spacing.three, borderWidth: 1, borderRadius: Radius.md },
   altRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   ticketEmpty: { alignItems: 'center', gap: 9, borderRadius: Radius.lg, padding: Spacing.four },

@@ -492,6 +492,9 @@ export default function CrearScreen() {
                   autoCapitalize="none"
                   style={[styles.manualInput, { color: t.text, borderColor: t.border }]}
                 />
+                <Body muted style={{ fontSize: 11 }}>
+                  Los enlaces de Google Maps con coordenadas se ubican automáticamente. Las direcciones escritas quedan marcadas para verificar.
+                </Body>
                 <Button
                   title="Agregar como imprescindible"
                   icon="star-outline"
