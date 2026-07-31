@@ -2,9 +2,9 @@ import { BUDGETS, PACES } from '@/data/catalog';
 import { placesByCity } from '@/data/places';
 import { addDays, daysInclusive, weekday } from '@/lib/dates';
 import { centroid, distanceM, legBetween, placePt } from '@/lib/geo';
+import { DEFAULT_DAY_START, optimizeRoute, scheduleActivities } from '@/lib/schedule';
 import type { Activity, Day, Draft, Place } from '@/types';
 
-const START_MIN = 9 * 60 + 30; // arranca 09:30
 const LUNCH_FROM = 12 * 60 + 30;
 const DINNER_MIN = 20 * 60;
 
@@ -93,35 +93,19 @@ export function generateItinerary(draft: Draft): Day[] {
 
   const start = draft.startDate;
   const acc = draft.accommodation;
+  const dayStart = draft.dayStartMin ?? DEFAULT_DAY_START;
 
   return groups.map((group, dayIdx) => {
     const date = addDays(start, dayIdx);
-    if (!group.length) return { date, zone: '', activities: [] };
+    if (!group.length) return { date, zone: '', startMin: dayStart, activities: [] };
 
-    // Ordenar ruta (vecino más cercano desde el alojamiento o el más prioritario)
-    const pool = [...group];
-    const ordered: Place[] = [];
-    let ref = acc ? { lat: acc.lat, lng: acc.lng } : placePt(pool[0]);
-    if (!acc) ordered.push(pool.shift()!);
-    while (pool.length) {
-      let bi = 0;
-      let bd = Infinity;
-      pool.forEach((p, i) => {
-        const dd = distanceM(ref, p);
-        if (dd < bd) {
-          bd = dd;
-          bi = i;
-        }
-      });
-      const nx = pool.splice(bi, 1)[0];
-      ordered.push(nx);
-      ref = placePt(nx);
-    }
+    // 1) Ruta óptima: arranca en el alojamiento y evita cruzar la ciudad (2-opt)
+    const ordered = optimizeRoute(group, acc ? { lat: acc.lat, lng: acc.lng } : null);
 
-    // Armar secuencia de paradas con comidas intercaladas
+    // 2) Intercalar comidas (almuerzo al cruzar el mediodía; cena al final)
     type Stop = { place: Place; dinner?: boolean };
     const stops: Stop[] = [];
-    let simT = START_MIN;
+    let simT = dayStart;
     let lunchDone = false;
     for (let i = 0; i < ordered.length; i++) {
       const p = ordered[i];
@@ -147,33 +131,31 @@ export function generateItinerary(draft: Draft): Day[] {
       if (meal) stops.push({ place: meal, dinner: true });
     }
 
-    // Agendar horarios
-    let t = START_MIN;
-    const activities: Activity[] = [];
+    // 3) Agendar con horarios naturales (redondeados a 5') y sin solapes
     const wd = weekday(date);
-    for (let i = 0; i < stops.length; i++) {
-      const { place: p, dinner } = stops[i];
-      if (dinner && t < DINNER_MIN) t = DINNER_MIN;
-      const closed = p.opensDay ? !p.opensDay.includes(wd) : false;
-      activities.push({
-        id: uid(),
-        placeId: p.id,
-        startMin: t,
-        durationMin: p.durationMin,
-        status: 'plan',
-        mustSee: draft.mustSeeIds.includes(p.id),
-        note: closed ? 'Podría estar cerrado este día — verificá los horarios.' : undefined,
-      });
-      t += p.durationMin;
-      if (i < stops.length - 1) t += legBetween(p, stops[i + 1].place).minutes;
-    }
+    const drafts = stops.map(({ place: p }) => ({
+      placeId: p.id,
+      durationMin: p.durationMin,
+      mustSee: draft.mustSeeIds.includes(p.id),
+      note: p.opensDay && !p.opensDay.includes(wd) ? 'Podría estar cerrado este día — verificá los horarios.' : undefined,
+    }));
+    const timed = scheduleActivities(drafts, dayStart, (i) => (stops[i].dinner ? DINNER_MIN : undefined));
+    const activities: Activity[] = timed.map((d) => ({
+      id: uid(),
+      placeId: d.placeId,
+      startMin: d.startMin,
+      durationMin: d.durationMin,
+      status: 'plan',
+      mustSee: d.mustSee,
+      note: d.note,
+    }));
 
-    // Zona principal del día (la más frecuente entre no-comidas)
+    // Zona principal del día (la más frecuente entre los lugares del día)
     const zones: Record<string, number> = {};
     group.forEach((p) => (zones[p.zone] = (zones[p.zone] ?? 0) + 1));
     const zone = Object.entries(zones).sort((a, b) => b[1] - a[1])[0]?.[0] ?? group[0].zone;
 
-    return { date, zone, activities };
+    return { date, zone, startMin: dayStart, activities };
   });
 }
 

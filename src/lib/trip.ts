@@ -1,24 +1,12 @@
 import { placeById, placesByCity } from '@/data/places';
 import { daysUntil } from '@/lib/dates';
-import { distanceM, legBetween } from '@/lib/geo';
+import { distanceM } from '@/lib/geo';
+import { DEFAULT_DAY_START, scheduleActivities } from '@/lib/schedule';
 import type { Activity, Category, Day, Trip, TripStatus } from '@/types';
-
-const START_MIN = 9 * 60 + 30;
 
 /** Recalcula los horarios de un día a partir del orden actual de actividades. */
 export function rescheduleDay(day: Day): Day {
-  let t = START_MIN;
-  const activities = day.activities.map((a, i) => {
-    const p = placeById(a.placeId);
-    const start = t;
-    t += a.durationMin;
-    const next = day.activities[i + 1];
-    if (next) {
-      const np = placeById(next.placeId);
-      if (p && np) t += legBetween(p, np).minutes;
-    }
-    return { ...a, startMin: start };
-  });
+  const activities = scheduleActivities(day.activities, day.startMin ?? DEFAULT_DAY_START);
   return { ...day, activities };
 }
 

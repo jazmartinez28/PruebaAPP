@@ -22,9 +22,28 @@ import {
   type GeocodedAccommodation,
 } from '@/lib/place-provider';
 import { useStore } from '@/store/useStore';
-import type { Accommodation, Budget } from '@/types';
+import type { Accommodation, Budget, GroupType } from '@/types';
 
 const TOTAL = 8;
+
+const PARTY: { n: number; label: string }[] = [
+  { n: 1, label: 'Solo' },
+  { n: 2, label: '2' },
+  { n: 3, label: '3' },
+  { n: 4, label: '4' },
+  { n: 5, label: '5+' },
+];
+const GROUP: { id: GroupType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { id: 'pareja', label: 'Pareja', icon: 'heart-outline' },
+  { id: 'amigos', label: 'Amigos', icon: 'people-outline' },
+  { id: 'familia', label: 'Familia', icon: 'home-outline' },
+  { id: 'trabajo', label: 'Trabajo', icon: 'briefcase-outline' },
+];
+const DAY_STARTS: { min: number; label: string; sub: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { min: 8 * 60, label: '08:00', sub: 'Soy madrugador/a', icon: 'sunny-outline' },
+  { min: 9 * 60, label: '09:00', sub: 'Horario equilibrado', icon: 'partly-sunny-outline' },
+  { min: 10 * 60, label: '10:00', sub: 'Prefiero empezar tarde', icon: 'cafe-outline' },
+];
 
 export default function CrearScreen() {
   const t = useTheme();
@@ -332,6 +351,49 @@ export default function CrearScreen() {
                 </Pressable>
               );
             })}
+
+            {/* Cantidad de personas (#5) */}
+            <View style={{ gap: Spacing.two, marginTop: Spacing.two }}>
+              <Label>¿Cuántos viajan?</Label>
+              <View style={styles.chips}>
+                {PARTY.map((o) => (
+                  <Chip key={o.n} label={o.label} selected={draft.partySize === o.n} onPress={() => setDraft({ partySize: o.n })} />
+                ))}
+              </View>
+              <View style={styles.chips}>
+                {GROUP.map((g) => (
+                  <Chip
+                    key={g.id}
+                    label={g.label}
+                    icon={g.icon}
+                    selected={draft.groupType === g.id}
+                    onPress={() => setDraft({ groupType: draft.groupType === g.id ? undefined : g.id })}
+                  />
+                ))}
+              </View>
+            </View>
+
+            {/* Horario de inicio del día (#8) */}
+            <View style={{ gap: Spacing.two }}>
+              <Label>¿A qué hora arrancás el día?</Label>
+              {DAY_STARTS.map((o) => {
+                const sel = (draft.dayStartMin ?? 9 * 60) === o.min;
+                return (
+                  <Pressable key={o.min} accessibilityRole="button" accessibilityState={{ selected: sel }} onPress={() => setDraft({ dayStartMin: o.min })}>
+                    <Card style={[styles.paceCard, sel && { borderColor: t.primary, borderWidth: 2 }]}>
+                      <View style={[styles.paceIcon, { backgroundColor: sel ? t.primary : t.primarySoft }]}>
+                        <Ionicons name={o.icon} size={20} color={sel ? t.textOnPrimary : t.primary} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Body style={{ fontWeight: '700', fontSize: 16 }}>{o.label}</Body>
+                        <Body muted style={{ fontSize: 13 }}>{o.sub}</Body>
+                      </View>
+                      {sel && <Ionicons name="checkmark-circle" size={22} color={t.primary} />}
+                    </Card>
+                  </Pressable>
+                );
+              })}
+            </View>
           </>
         )}
 

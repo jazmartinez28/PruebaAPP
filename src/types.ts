@@ -19,6 +19,7 @@ export type Category =
 
 export type Pace = 'tranquilo' | 'equilibrado' | 'intenso';
 export type Budget = 'economico' | 'moderado' | 'comodo' | 'premium' | 'noindica';
+export type GroupType = 'solo' | 'pareja' | 'amigos' | 'familia' | 'trabajo' | 'otro';
 export type PriceTier = 0 | 1 | 2 | 3; // 0 gratis, 1 $, 2 $$, 3 $$$
 
 /** Lugar (punto de interés, restaurante, actividad). */
@@ -72,6 +73,7 @@ export type Activity = {
 export type Day = {
   date: string; // ISO yyyy-mm-dd
   zone: string; // zona principal del día
+  startMin?: number; // hora de inicio del día (minutos desde 00:00)
   activities: Activity[];
 };
 
@@ -112,6 +114,9 @@ export type Trip = {
   mustSeeIds: string[]; // lugares imprescindibles
   savedIds: string[]; // guardados
   removedIds: string[]; // descartados
+  dayStartMin?: number; // hora habitual de comienzo del día
+  partySize?: number; // cantidad de personas
+  groupType?: GroupType;
   tickets: Ticket[];
   packingItems: PackingItem[];
   days: Day[];
@@ -131,6 +136,9 @@ export type Draft = {
   pace: Pace;
   budget: Budget;
   mustSeeIds: string[];
+  dayStartMin?: number;
+  partySize?: number;
+  groupType?: GroupType;
 };
 
 export type User = {
