@@ -221,8 +221,8 @@ export const useStore = create<State>()(
       setBudget: (b) => set((s) => ({ draft: { ...s.draft, budget: b } })),
       setAccommodation: (a) => set((s) => ({ draft: { ...s.draft, accommodation: a } })),
       loadCityCatalog: async (cityId) => {
-        const existing = get().externalPlaces.filter((place) => place.cityId === cityId);
-        if (existing.length >= 80) {
+        const existing = get().externalPlaces.filter((place) => place.cityId === cityId && place.kind !== 'event');
+        if (existing.length >= REMOTE_CONFIG.cityCatalogReadyMin) {
           mergeRuntimePlaces(existing);
           return { count: existing.length };
         }
@@ -230,10 +230,10 @@ export const useStore = create<State>()(
         if (!city) return { count: 0, error: 'Ciudad no disponible' };
         set((s) => ({ catalogStatus: { ...s.catalogStatus, [cityId]: 'loading' } }));
         try {
-          const places = await fetchCityPlaces(city, 160);
+          const places = await fetchCityPlaces(city, REMOTE_CONFIG.cityCatalogTarget);
           mergeRuntimePlaces(places);
           set((s) => {
-            const otherCities = s.externalPlaces.filter((place) => place.cityId !== cityId);
+            const otherCities = s.externalPlaces.filter((place) => place.cityId !== cityId || place.kind === 'event');
             return {
               externalPlaces: [...otherCities, ...places],
               catalogStatus: { ...s.catalogStatus, [cityId]: 'ready' },

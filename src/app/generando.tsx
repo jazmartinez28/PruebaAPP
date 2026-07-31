@@ -27,6 +27,7 @@ export default function GenerandoScreen() {
   const draft = useStore((s) => s.draft);
   const createTrip = useStore((s) => s.createTripFromDraft);
   const loadCityCatalog = useStore((s) => s.loadCityCatalog);
+  const loadTripEvents = useStore((s) => s.loadTripEvents);
   const resetDraft = useStore((s) => s.resetDraft);
   const [stage, setStage] = useState(0);
   const done = useRef(false);
@@ -44,6 +45,9 @@ export default function GenerandoScreen() {
       await wait(350);
       setStage(1);
       await loadCityCatalog(draft.cityId!);
+      if (draft.endDate) {
+        await loadTripEvents(draft.cityId!, draft.startDate!, draft.endDate);
+      }
       for (let index = 2; index < STAGES.length; index++) {
         if (cancelled) return;
         setStage(index);

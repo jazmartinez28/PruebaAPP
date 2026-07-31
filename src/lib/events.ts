@@ -1,4 +1,5 @@
 import type { City } from '@/data/cities';
+import { REMOTE_CONFIG } from '@/constants/config';
 import type { Category, Place, PriceTier } from '@/types';
 
 type TMEvent = {
@@ -67,7 +68,7 @@ export async function fetchTripEvents(city: City, startDate: string, endDate: st
     countryCode: city.countryCode,
     startDateTime: `${startDate}T00:00:00Z`,
     endDateTime: `${endDate}T23:59:59Z`,
-    size: '40',
+    size: String(REMOTE_CONFIG.liveEventsPerTrip),
     sort: 'date,asc',
     locale: '*',
   });
