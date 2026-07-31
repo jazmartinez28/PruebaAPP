@@ -22,6 +22,7 @@ import { fmtDate, fmtRange } from '@/lib/dates';
 import { fmtDist, legBetween, minToHHMM } from '@/lib/geo';
 import { tripStats } from '@/lib/generate';
 import { recommendedTransport } from '@/lib/transport';
+import { ticketInfo } from '@/lib/tickets';
 import { getAlternatives, tripStatusOf, type AltFilter } from '@/lib/trip';
 import { RouteMap, type MapStop } from '@/components/route-map';
 import { useStore } from '@/store/useStore';
@@ -747,7 +748,12 @@ function TimelineActivity({
           <Body muted style={{ fontSize: 12 }}>{activity.durationMin} min · {PRICE_LABEL(p.price)}</Body>
         </View>
         <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
-          {p.needsBooking && <Tag color={t.warning} text="Reservar" />}
+          {(() => {
+            const ti = ticketInfo(p);
+            if (ti.status === 'none' || ti.status === 'free') return null;
+            const color = ti.status === 'required' ? t.error : ti.reservation ? t.warning : t.primary;
+            return <Tag color={color} text={ti.label} />;
+          })()}
           {activity.note && <Tag color={t.warning} text="Verificar horario" />}
           {activity.mustSee && <Tag color={t.primary} text="Imprescindible" />}
           {ticketCount > 0 && <Tag color={t.secondary} text={`${ticketCount} ticket${ticketCount > 1 ? 's' : ''}`} />}
@@ -858,12 +864,21 @@ function TicketsTab({
   const t = useTheme();
   const removeTicket = useStore((s) => s.removeTicket);
   const tickets = trip.tickets ?? [];
-  const reservations = trip.days
-    .flatMap((day) => day.activities)
-    .filter((activity) => {
-      const place = placeById(activity.placeId);
-      return place?.price !== 0 || place?.needsBooking;
-    });
+  const allActs = trip.days.flatMap((day) => day.activities);
+  const needTicket = allActs.filter((a) => {
+    const p = placeById(a.placeId);
+    return p ? ticketInfo(p).ticket : false;
+  });
+  const needReservation = allActs.filter((a) => {
+    const p = placeById(a.placeId);
+    return p ? ticketInfo(p).reservation : false;
+  });
+  const noTicketCount = allActs.filter((a) => {
+    const p = placeById(a.placeId);
+    if (!p) return false;
+    const info = ticketInfo(p);
+    return !info.ticket && !info.reservation;
+  }).length;
 
   return (
     <>
@@ -955,32 +970,62 @@ function TicketsTab({
         </View>
       )}
 
-      <View style={{ gap: Spacing.two }}>
-        <H2>Actividades para reservar</H2>
-        {reservations.map((activity) => {
-          const place = placeById(activity.placeId);
-          const saved = tickets.some((ticket) => ticket.activityId === activity.id);
-          if (!place) return null;
-          return (
-            <Pressable key={activity.id} onPress={() => onOpenActivity(activity)}>
-              <Card style={styles.placeRow}>
-                <Ionicons
-                  name={saved ? 'checkmark-circle' : 'ticket-outline'}
-                  size={21}
-                  color={saved ? t.secondary : t.primary}
-                />
-                <View style={{ flex: 1 }}>
-                  <Body style={{ fontWeight: '700' }}>{place.name}</Body>
-                  <Body muted style={{ fontSize: 12 }}>
-                    {saved ? 'Ticket guardado' : purchaseUrlFor(place) ? 'Compra oficial disponible' : 'Agregar confirmación'}
-                  </Body>
-                </View>
-                <Ionicons name="chevron-forward" size={17} color={t.textSecondary} />
-              </Card>
-            </Pressable>
-          );
-        })}
-      </View>
+      {needTicket.length > 0 && (
+        <View style={{ gap: Spacing.two }}>
+          <H2>Entradas a conseguir</H2>
+          {needTicket.map((activity) => {
+            const place = placeById(activity.placeId);
+            const saved = tickets.some((ticket) => ticket.activityId === activity.id);
+            if (!place) return null;
+            const info = ticketInfo(place);
+            return (
+              <Pressable key={activity.id} onPress={() => onOpenActivity(activity)}>
+                <Card style={styles.placeRow}>
+                  <Ionicons name={saved ? 'checkmark-circle' : 'ticket-outline'} size={21} color={saved ? t.secondary : t.primary} />
+                  <View style={{ flex: 1 }}>
+                    <Body style={{ fontWeight: '700' }}>{place.name}</Body>
+                    <Body muted style={{ fontSize: 12 }}>
+                      {saved ? 'Ticket guardado' : `${info.label}${purchaseUrlFor(place) ? ' · compra oficial disponible' : ''}`}
+                    </Body>
+                  </View>
+                  <Ionicons name="chevron-forward" size={17} color={t.textSecondary} />
+                </Card>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
+
+      {needReservation.length > 0 && (
+        <View style={{ gap: Spacing.two }}>
+          <H2>Para reservar (sin ticket)</H2>
+          {needReservation.map((activity) => {
+            const place = placeById(activity.placeId);
+            if (!place) return null;
+            return (
+              <Pressable key={activity.id} onPress={() => onOpenActivity(activity)}>
+                <Card style={styles.placeRow}>
+                  <Ionicons name="restaurant-outline" size={21} color={t.warning} />
+                  <View style={{ flex: 1 }}>
+                    <Body style={{ fontWeight: '700' }}>{place.name}</Body>
+                    <Body muted style={{ fontSize: 12 }}>Conviene reservar mesa con anticipación</Body>
+                  </View>
+                  <Ionicons name="chevron-forward" size={17} color={t.textSecondary} />
+                </Card>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
+
+      {noTicketCount > 0 && (
+        <View style={[styles.placeRow, { paddingHorizontal: Spacing.three }]}>
+          <Ionicons name="checkmark-done-circle-outline" size={20} color={t.secondary} />
+          <Body muted style={{ flex: 1, fontSize: 13 }}>
+            {noTicketCount} {noTicketCount === 1 ? 'actividad no necesita' : 'actividades no necesitan'} ticket (plazas, paseos, entradas gratuitas).
+          </Body>
+        </View>
+      )}
     </>
   );
 }
@@ -1087,6 +1132,8 @@ function ActivityDetailSheet({
   const saved = trip.savedIds.includes(p.id);
   const visual = categoryVisualFor(p);
   const purchaseUrl = purchaseUrlFor(p);
+  const ti = ticketInfo(p);
+  const tiColor = ti.status === 'required' || ti.status === 'unconfirmed' ? t.warning : ti.status === 'free' || ti.status === 'none' ? t.secondary : t.primary;
   const openMaps = () => {
     const url = Platform.select({
       default: `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`,
@@ -1128,24 +1175,24 @@ function ActivityDetailSheet({
       <View style={{ marginTop: Spacing.three, gap: 8 }}>
         <InfoLine icon="time" label="Horario" value={`${minToHHMM(activity.startMin)} · ${activity.durationMin} min`} />
         <InfoLine icon="location" label="Zona" value={p.zone} />
-        {p.needsBooking && <InfoLine icon="bookmark" label="Reserva" value="Recomendada" warn />}
+        <InfoLine icon="ticket-outline" label="Ticket" value={ti.label} warn={ti.status === 'required' || ti.status === 'unconfirmed'} />
         {p.openFrom && <InfoLine icon="storefront" label="Abre" value={`${p.openFrom}–${p.openTo ?? ''}`} />}
         {(p.confident === false || activity.note) && (
           <InfoLine icon="alert-circle" label="Aviso" value={activity.note ?? 'Horario/precio sujeto a cambios. Verificá en el sitio oficial.'} warn />
         )}
       </View>
 
-      {p.price > 0 && (
+      {(ti.ticket || ti.reservation) && (
         <View style={[styles.bookingPanel, { backgroundColor: t.secondarySoft }]}>
           <View style={[styles.bookingIcon, { backgroundColor: t.secondary }]}>
-            <Ionicons name="ticket-outline" size={22} color="#fff" />
+            <Ionicons name={ti.reservation ? 'restaurant-outline' : 'ticket-outline'} size={22} color="#fff" />
           </View>
           <View style={{ flex: 1 }}>
-            <Body style={{ color: t.secondary, fontWeight: '800' }}>
-              {p.needsBooking ? 'Conviene reservar antes' : 'Actividad paga'}
-            </Body>
+            <Body style={{ color: t.secondary, fontWeight: '800' }}>{ti.label}</Body>
             <Body style={{ color: t.secondary, fontSize: 12, marginTop: 2 }}>
-              Comprá desde el sitio oficial y guardá después el ticket en Rumbo.
+              {ti.reservation
+                ? 'Reservá desde el sitio oficial y guardá la confirmación en Rumbo.'
+                : 'Comprá desde el sitio oficial y guardá después el ticket en Rumbo.'}
             </Body>
           </View>
           {purchaseUrl && (
