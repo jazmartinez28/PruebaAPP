@@ -31,23 +31,6 @@ const MOODS = [
   { id: 'ritmo', label: 'Ciudad con ritmo', icon: 'musical-notes-outline', interests: ['vidanocturna', 'musica', 'local'], pace: 'intenso', cityIds: ['buenosaires', 'nuevayork', 'barcelona'] },
 ] as const;
 
-const EDITORIAL = [
-  {
-    id: 'weekend',
-    cityId: 'barcelona',
-    title: 'Un fin de semana que sí alcanza',
-    subtitle: 'Barrios caminables, sobremesa y mar',
-    icon: 'sunny-outline',
-  },
-  {
-    id: 'food',
-    cityId: 'tokio',
-    title: 'Viajar con el paladar',
-    subtitle: 'Mercados, barras pequeñas y grandes clásicos',
-    icon: 'restaurant-outline',
-  },
-] as const;
-
 export default function HomeScreen() {
   const t = useTheme();
   const router = useRouter();
@@ -150,7 +133,11 @@ export default function HomeScreen() {
         </View>
 
         {next ? (
-          <NextTripCard trip={next} onOpen={() => router.push(`/viaje/${next.id}`)} />
+          <NextTripCard
+            trip={next}
+            onOpen={() => router.push(`/viaje/${next.id}`)}
+            onShare={() => router.push({ pathname: '/viaje/[id]', params: { id: next.id, action: 'share' } })}
+          />
         ) : (
           <DiscoveryHero onCreate={() => router.push('/crear')} onSurprise={surpriseMe} />
         )}
@@ -225,34 +212,14 @@ export default function HomeScreen() {
           ))}
         </ScrollView>
 
-        <View style={styles.editorialSection}>
-          <SectionHeader title="Ideas que dan ganas de hacer la valija" />
-          {EDITORIAL.map((item) => {
-            const city = cityById(item.cityId);
-            if (!city) return null;
-            return (
-              <Pressable
-                key={item.id}
-                accessibilityRole="button"
-                accessibilityLabel={`${item.title}, planificar ${city.name}`}
-                onPress={() => startWithCity(city)}
-                style={({ pressed }) => [pressed && styles.pressed]}>
-                <CityImage city={city} scrim={0.46} style={styles.editorialCard}>
-                  <View style={styles.editorialIcon}>
-                    <Ionicons name={item.icon as any} size={20} color="#FFFFFF" />
-                  </View>
-                  <View style={styles.editorialCopy}>
-                    <Body style={styles.editorialTitle}>{item.title}</Body>
-                    <Body style={styles.editorialSubtitle}>{item.subtitle}</Body>
-                  </View>
-                  <View style={styles.roundArrow}>
-                    <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
-                  </View>
-                </CityImage>
-              </Pressable>
-            );
-          })}
-        </View>
+        <ContextualActions
+          trip={next}
+          onCreate={() => router.push('/crear')}
+          onPlan={() => next && openTripTool('itinerario')}
+          onHotel={() => next && openTripTool('resumen', 'hotel')}
+          onTickets={() => next && openTripTool('tickets')}
+          onPacking={() => next && openTripTool('valija')}
+        />
 
         {!next && <LivePlanPreview />}
 
@@ -351,7 +318,7 @@ function DestinationCard({
   );
 }
 
-function NextTripCard({ trip, onOpen }: { trip: Trip; onOpen: () => void }) {
+function NextTripCard({ trip, onOpen, onShare }: { trip: Trip; onOpen: () => void; onShare: () => void }) {
   const city = cityById(trip.cityId);
   const status = tripStatusOf(trip);
   const stats = tripStats(trip.days);
@@ -376,6 +343,7 @@ function NextTripCard({ trip, onOpen }: { trip: Trip; onOpen: () => void }) {
           accessibilityRole="button"
           accessibilityLabel="Compartir viaje"
           hitSlop={8}
+          onPress={onShare}
           style={({ pressed }) => [styles.shareButton, pressed && styles.pressed]}>
           <Ionicons name="share-outline" size={20} color="#FFFFFF" />
         </Pressable>
@@ -404,6 +372,72 @@ function NextTripCard({ trip, onOpen }: { trip: Trip; onOpen: () => void }) {
         </Pressable>
       </View>
     </CityImage>
+  );
+}
+
+function ContextualActions({
+  trip,
+  onCreate,
+  onPlan,
+  onHotel,
+  onTickets,
+  onPacking,
+}: {
+  trip?: Trip;
+  onCreate: () => void;
+  onPlan: () => void;
+  onHotel: () => void;
+  onTickets: () => void;
+  onPacking: () => void;
+}) {
+  const t = useTheme();
+  if (!trip) {
+    return (
+      <View style={styles.contextSection}>
+        <View><H2>Organizá tu próximo viaje en minutos</H2><Body muted style={{ marginTop: 4 }}>Elegí el destino y nosotros ordenamos cada día por vos.</Body></View>
+        <Card style={styles.startCard}>
+          {[
+            ['location-outline', 'Elegí destino y fechas'],
+            ['options-outline', 'Contanos tu ritmo e intereses'],
+            ['map-outline', 'Recibí un plan por zonas y horarios'],
+          ].map(([icon, label], index) => (
+            <View key={label} style={styles.startStep}>
+              <View style={[styles.startNumber, { backgroundColor: index === 2 ? t.secondarySoft : t.primarySoft }]}><Body style={{ color: index === 2 ? t.secondary : t.primary, fontWeight: '900' }}>{index + 1}</Body></View>
+              <Ionicons name={icon as any} size={19} color={t.textSecondary} />
+              <Body style={{ flex: 1, fontWeight: '800' }}>{label}</Body>
+            </View>
+          ))}
+          <Button title="Crear mi primer viaje" icon="sparkles-outline" onPress={onCreate} />
+        </Card>
+      </View>
+    );
+  }
+
+  const allActivities = trip.days.flatMap((day) => day.activities);
+  const packed = (trip.packingItems ?? []).filter((item) => item.packed).length;
+  const totalPacking = (trip.packingItems ?? []).length;
+  const tasks = [
+    !trip.accommodation ? { icon: 'bed-outline', title: 'Agregar alojamiento', text: 'Mejora el primer y último traslado', action: onHotel, tone: t.primary } : null,
+    !(trip.tickets ?? []).length ? { icon: 'ticket-outline', title: 'Revisar tickets', text: `${allActivities.length} actividades por comprobar`, action: onTickets, tone: t.warning } : null,
+    totalPacking === 0 || packed < totalPacking ? { icon: 'bag-check-outline', title: 'Preparar la valija', text: totalPacking ? `${packed} de ${totalPacking} listos` : 'Crear lista inteligente', action: onPacking, tone: t.secondary } : null,
+  ].filter(Boolean) as { icon: any; title: string; text: string; action: () => void; tone: string }[];
+
+  return (
+    <View style={styles.contextSection}>
+      <View style={styles.contextHeading}>
+        <View style={{ flex: 1 }}><H2>{tasks.length ? 'Completá lo importante' : 'Todo listo para tu próxima aventura'}</H2><Body muted style={{ marginTop: 4 }}>{tasks.length ? 'Acciones concretas para llegar con todo resuelto.' : 'Tu viaje está preparado. Podés revisar el plan cuando quieras.'}</Body></View>
+        <Pressable onPress={onCreate} style={[styles.addTrip, { borderColor: t.border }]}><Ionicons name="add" size={19} color={t.primary} /><Body style={{ color: t.primary, fontWeight: '800', fontSize: 12 }}>Otro viaje</Body></Pressable>
+      </View>
+      <Card style={{ padding: 0 }}>
+        {(tasks.length ? tasks : [{ icon: 'checkmark-done-outline', title: 'Revisar itinerario', text: `${trip.days.length} días organizados`, action: onPlan, tone: t.secondary }]).map((task, index, list) => (
+          <Pressable key={task.title} onPress={task.action} style={({ pressed }) => [styles.contextRow, index < list.length - 1 && { borderBottomColor: t.border, borderBottomWidth: 1 }, pressed && styles.pressed]}>
+            <View style={[styles.contextIcon, { backgroundColor: `${task.tone}18` }]}><Ionicons name={task.icon} size={21} color={task.tone} /></View>
+            <View style={{ flex: 1 }}><Body style={{ fontWeight: '900' }}>{task.title}</Body><Body muted style={{ fontSize: 12 }}>{task.text}</Body></View>
+            <Ionicons name="chevron-forward" size={18} color={t.textSecondary} />
+          </Pressable>
+        ))}
+      </Card>
+    </View>
   );
 }
 
@@ -704,6 +738,14 @@ const styles = StyleSheet.create({
   destinationName: { color: '#FFFFFF', fontWeight: '900', fontSize: 30, lineHeight: 34 },
   destinationCountry: { color: '#FFFFFF', opacity: 0.88, fontSize: 14, marginTop: 2 },
   editorialSection: { gap: 12 },
+  contextSection: { paddingHorizontal: Spacing.three, gap: 12 },
+  contextHeading: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  addTrip: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 5, borderWidth: 1, borderRadius: Radius.pill, paddingHorizontal: 12 },
+  contextRow: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 15 },
+  contextIcon: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  startCard: { gap: Spacing.three },
+  startStep: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  startNumber: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   editorialCard: {
     minHeight: 160,
     marginHorizontal: Spacing.three,

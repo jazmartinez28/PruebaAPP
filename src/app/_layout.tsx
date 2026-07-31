@@ -34,6 +34,7 @@ export default function RootLayout() {
             <Stack.Screen name="viaje/[id]" />
             <Stack.Screen name="paywall" options={{ presentation: 'modal' }} />
             <Stack.Screen name="auth" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="settings" />
           </Stack>
         </ThemeProvider>
       </SafeAreaProvider>

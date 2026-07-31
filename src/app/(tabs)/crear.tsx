@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -22,7 +22,7 @@ import {
   type GeocodedAccommodation,
 } from '@/lib/place-provider';
 import { useStore } from '@/store/useStore';
-import type { Accommodation, Budget, GroupType } from '@/types';
+import type { Accommodation, Budget, Draft, GroupType, TravelPointType } from '@/types';
 
 const TOTAL = 8;
 
@@ -54,7 +54,12 @@ export default function CrearScreen() {
   const toggleMustSee = useStore((s) => s.toggleMustSee);
   const setAccommodation = useStore((s) => s.setAccommodation);
   const loadCityCatalog = useStore((s) => s.loadCityCatalog);
+  const loadTripEvents = useStore((s) => s.loadTripEvents);
   const catalogStatus = useStore((s) => (s.draft.cityId ? s.catalogStatus[s.draft.cityId] : 'idle'));
+  const eventKey = draft.cityId && draft.startDate && draft.endDate
+    ? `${draft.cityId}:${draft.startDate}:${draft.endDate}`
+    : '';
+  const eventStatus = useStore((s) => (eventKey ? s.eventStatus[eventKey] ?? 'idle' : 'idle'));
   const addManualMustSee = useStore((s) => s.addManualMustSee);
   useStore((s) => s.externalPlaces);
 
@@ -77,6 +82,11 @@ export default function CrearScreen() {
   const filteredCities = CITIES.filter(
     (c) => !query || `${c.name} ${c.country}`.toLowerCase().includes(query.toLowerCase()),
   );
+
+  useEffect(() => {
+    if (!draft.cityId || !draft.startDate || !draft.endDate) return;
+    void loadTripEvents(draft.cityId, draft.startDate, draft.endDate);
+  }, [draft.cityId, draft.startDate, draft.endDate, loadTripEvents]);
 
   const canContinue = () => {
     if (step === 0) return !!draft.cityId;
@@ -186,13 +196,17 @@ export default function CrearScreen() {
               onChange={(s, e) => setDraft({ startDate: s, endDate: e })}
             />
             {draft.startDate && draft.endDate && (
-              <Card style={styles.rangeInfo}>
-                <Ionicons name="calendar" size={20} color={t.secondary} />
-                <Body style={{ fontWeight: '700' }}>
-                  {fmtRange(draft.startDate, draft.endDate)} ·{' '}
-                  {daysInclusive(draft.startDate, draft.endDate)} días
-                </Body>
-              </Card>
+              <>
+                <Card style={styles.rangeInfo}>
+                  <Ionicons name="calendar" size={20} color={t.secondary} />
+                  <Body style={{ fontWeight: '700' }}>
+                    {fmtRange(draft.startDate, draft.endDate)} ·{' '}
+                    {daysInclusive(draft.startDate, draft.endDate)} días
+                  </Body>
+                </Card>
+                <TravelBoundaryEditor kind="arrival" draft={draft} setDraft={setDraft} />
+                <TravelBoundaryEditor kind="departure" draft={draft} setDraft={setDraft} />
+              </>
             )}
           </>
         )}
@@ -360,6 +374,19 @@ export default function CrearScreen() {
                   <Chip key={o.n} label={o.label} selected={draft.partySize === o.n} onPress={() => setDraft({ partySize: o.n })} />
                 ))}
               </View>
+              {(draft.partySize ?? 0) >= 5 && (
+                <View style={[styles.inlineField, { backgroundColor: t.surface, borderColor: t.border }]}>
+                  <Ionicons name="people-outline" size={19} color={t.textSecondary} />
+                  <TextInput
+                    accessibilityLabel="Cantidad personalizada de personas"
+                    value={String(draft.partySize ?? 5)}
+                    onChangeText={(value) => setDraft({ partySize: Math.max(5, Math.min(99, Number(value.replace(/\D/g, '')) || 5)) })}
+                    keyboardType="number-pad"
+                    style={[styles.inlineInput, { color: t.text }]}
+                  />
+                  <Body muted style={{ fontSize: 12 }}>personas</Body>
+                </View>
+              )}
               <View style={styles.chips}>
                 {GROUP.map((g) => (
                   <Chip
@@ -393,6 +420,12 @@ export default function CrearScreen() {
                   </Pressable>
                 );
               })}
+              <TimeField
+                label="Horario personalizado"
+                value={draft.dayStartMin}
+                placeholder="Ej. 08:45"
+                onChange={(value) => setDraft({ dayStartMin: value })}
+              />
             </View>
           </>
         )}
@@ -507,6 +540,21 @@ export default function CrearScreen() {
                   : `${cityPlaces.length} lugares disponibles para personalizar tu viaje`}
               </Body>
             </View>
+            <View style={[styles.eventNotice, { backgroundColor: t.surface, borderColor: t.border }]}>
+              <Ionicons name="calendar-outline" size={20} color={eventStatus === 'ready' ? t.secondary : t.textSecondary} />
+              <View style={{ flex: 1 }}>
+                <Body style={{ fontWeight: '800' }}>
+                  {eventStatus === 'loading' ? 'Buscando eventos para tus fechas…' : eventStatus === 'ready' ? 'Eventos de tus fechas incluidos' : 'Eventos durante el viaje'}
+                </Body>
+                <Body muted style={{ fontSize: 12 }}>
+                  {eventStatus === 'unconfigured'
+                    ? 'Se activarán al configurar el proveedor de eventos.'
+                    : eventStatus === 'error'
+                      ? 'No pudimos consultar eventos. El resto del itinerario seguirá funcionando.'
+                      : 'Partidos, conciertos y festivales se fijan en su fecha y horario real.'}
+                </Body>
+              </View>
+            </View>
             <View style={{ gap: Spacing.two }}>
               {cityPlaces
                 .filter((p) => !p.isMeal)
@@ -615,6 +663,188 @@ export default function CrearScreen() {
   );
 }
 
+const TRAVEL_POINTS: { id: TravelPointType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { id: 'aeropuerto', label: 'Aeropuerto', icon: 'airplane-outline' },
+  { id: 'estacion', label: 'Estación', icon: 'train-outline' },
+  { id: 'terminal', label: 'Terminal', icon: 'bus-outline' },
+  { id: 'puerto', label: 'Puerto', icon: 'boat-outline' },
+  { id: 'direccion', label: 'Dirección', icon: 'location-outline' },
+  { id: 'otro', label: 'Otro', icon: 'ellipsis-horizontal-outline' },
+];
+
+function formatTime(value?: number) {
+  if (value == null) return '';
+  return `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
+}
+
+function TimeField({
+  label,
+  value,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  value?: number;
+  placeholder?: string;
+  onChange: (value?: number) => void;
+}) {
+  const t = useTheme();
+  const [text, setText] = useState(formatTime(value));
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => setText(formatTime(value)), [value]);
+  const commit = () => {
+    if (!text.trim()) {
+      setError(null);
+      onChange(undefined);
+      return;
+    }
+    const match = text.trim().match(/^(\d{1,2}):(\d{2})$/);
+    const hours = Number(match?.[1]);
+    const minutes = Number(match?.[2]);
+    if (!match || hours > 23 || minutes > 59) {
+      setError('Usá el formato HH:MM.');
+      return;
+    }
+    setError(null);
+    onChange(hours * 60 + minutes);
+    setText(`${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`);
+  };
+  return (
+    <View style={{ flex: 1, minWidth: 126, gap: 6 }}>
+      <Label>{label}</Label>
+      <View style={[styles.inlineField, { backgroundColor: t.surface, borderColor: error ? t.error : t.border }]}>
+        <Ionicons name="time-outline" size={18} color={error ? t.error : t.textSecondary} />
+        <TextInput
+          accessibilityLabel={label}
+          value={text}
+          onChangeText={setText}
+          onBlur={commit}
+          onSubmitEditing={commit}
+          placeholder={placeholder ?? '09:00'}
+          placeholderTextColor={t.textSecondary}
+          keyboardType="numbers-and-punctuation"
+          maxLength={5}
+          style={[styles.inlineInput, { color: t.text }]}
+        />
+      </View>
+      {error && <Body style={{ color: t.error, fontSize: 11 }}>{error}</Body>}
+    </View>
+  );
+}
+
+function TravelBoundaryEditor({
+  kind,
+  draft,
+  setDraft,
+}: {
+  kind: 'arrival' | 'departure';
+  draft: Draft;
+  setDraft: (partial: Partial<Draft>) => void;
+}) {
+  const t = useTheme();
+  const arrival = kind === 'arrival';
+  const title = arrival ? 'Llegada al destino' : 'Salida del destino';
+  const time = arrival ? draft.arrivalTime : draft.departureTime;
+  const point = arrival ? draft.arrivalPlace : draft.departurePlace;
+  const pointType = arrival ? draft.arrivalType : draft.departureType;
+  const buffer = arrival ? draft.arrivalBufferMin ?? 75 : draft.departureLeadMin ?? 120;
+  const transfer = arrival ? draft.arrivalTransferMin ?? 45 : draft.departureTransferMin ?? 45;
+  return (
+    <Card style={styles.boundaryCard}>
+      <View style={styles.boundaryHeading}>
+        <View style={[styles.boundaryIcon, { backgroundColor: arrival ? t.primarySoft : t.secondarySoft }]}>
+          <Ionicons name={arrival ? 'airplane-outline' : 'navigate-outline'} size={21} color={arrival ? t.primary : t.secondary} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Body style={{ fontWeight: '900', fontSize: 16 }}>{title}</Body>
+          <Body muted style={{ fontSize: 12 }}>
+            {arrival ? 'Dejamos margen para equipaje, traslado y descanso.' : 'Protegemos el traslado y la anticipación necesaria.'}
+          </Body>
+        </View>
+      </View>
+
+      <View style={styles.twoColumns}>
+        <TimeField
+          label={arrival ? 'Hora de llegada' : 'Hora de salida'}
+          value={time}
+          onChange={(value) => setDraft(arrival ? { arrivalTime: value } : { departureTime: value })}
+        />
+        <TimeField
+          label={arrival ? 'Check-in' : 'Check-out'}
+          value={arrival ? draft.checkInTime : draft.checkOutTime}
+          onChange={(value) => setDraft(arrival ? { checkInTime: value } : { checkOutTime: value })}
+        />
+      </View>
+
+      <View style={{ gap: 7 }}>
+        <Label>Lugar</Label>
+        <View style={styles.chips}>
+          {TRAVEL_POINTS.map((option) => (
+            <Chip
+              key={option.id}
+              label={option.label}
+              icon={option.icon}
+              selected={pointType === option.id}
+              onPress={() => setDraft(arrival ? { arrivalType: option.id } : { departureType: option.id })}
+            />
+          ))}
+        </View>
+        <View style={[styles.inlineField, { backgroundColor: t.surface, borderColor: t.border }]}>
+          <Ionicons name="location-outline" size={18} color={t.textSecondary} />
+          <TextInput
+            accessibilityLabel={arrival ? 'Lugar de llegada' : 'Lugar de salida'}
+            value={point ?? ''}
+            onChangeText={(value) => setDraft(arrival ? { arrivalPlace: value } : { departurePlace: value })}
+            placeholder={arrival ? 'Ej. Aeropuerto Fiumicino' : 'Ej. Estación Termini'}
+            placeholderTextColor={t.textSecondary}
+            style={[styles.inlineInput, { color: t.text }]}
+          />
+        </View>
+      </View>
+
+      <View style={styles.boundaryOptions}>
+        <View style={{ flex: 1, minWidth: 150, gap: 6 }}>
+          <Label>{arrival ? 'Margen al llegar' : 'Anticipación de salida'}</Label>
+          <View style={styles.chips}>
+            {(arrival ? [45, 75, 120] : [90, 120, 180]).map((minutes) => (
+              <Chip
+                key={minutes}
+                label={`${minutes} min`}
+                selected={buffer === minutes}
+                onPress={() => setDraft(arrival ? { arrivalBufferMin: minutes } : { departureLeadMin: minutes })}
+              />
+            ))}
+          </View>
+        </View>
+        <View style={{ flex: 1, minWidth: 150, gap: 6 }}>
+          <Label>Traslado estimado</Label>
+          <View style={styles.chips}>
+            {[30, 45, 60].map((minutes) => (
+              <Chip
+                key={minutes}
+                label={`${minutes} min`}
+                selected={transfer === minutes}
+                onPress={() => setDraft(arrival ? { arrivalTransferMin: minutes } : { departureTransferMin: minutes })}
+              />
+            ))}
+          </View>
+        </View>
+      </View>
+
+      {arrival && (
+        <Pressable
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: draft.canLeaveLuggage === true }}
+          onPress={() => setDraft({ canLeaveLuggage: !draft.canLeaveLuggage })}
+          style={[styles.luggageOption, { backgroundColor: draft.canLeaveLuggage ? t.secondarySoft : t.backgroundElement }]}>
+          <Ionicons name={draft.canLeaveLuggage ? 'checkbox' : 'square-outline'} size={21} color={draft.canLeaveLuggage ? t.secondary : t.textSecondary} />
+          <Body style={{ flex: 1, fontWeight: '700' }}>Puedo dejar el equipaje antes del check-in</Body>
+        </Pressable>
+      )}
+    </Card>
+  );
+}
+
 function ReviewStep({ onEdit }: { onEdit: (step: number) => void }) {
   const t = useTheme();
   const draft = useStore((s) => s.draft);
@@ -635,6 +865,16 @@ function ReviewStep({ onEdit }: { onEdit: (step: number) => void }) {
       value: draft.interests.length ? draft.interests.map((i) => CATEGORY_LABEL[i]).join(', ') : '—',
     },
     { step: 4, label: 'Ritmo', value: PACES.find((p) => p.id === draft.pace)?.label ?? '' },
+    {
+      step: 4,
+      label: 'Viajeros y comienzo',
+      value: `${draft.partySize ?? 1} persona(s) · desde ${formatTime(draft.dayStartMin ?? 9 * 60)}`,
+    },
+    {
+      step: 1,
+      label: 'Llegada y salida',
+      value: `${draft.arrivalTime != null ? formatTime(draft.arrivalTime) : 'Sin hora'} → ${draft.departureTime != null ? formatTime(draft.departureTime) : 'Sin hora'}`,
+    },
     { step: 5, label: 'Presupuesto', value: BUDGETS.find((b) => b.id === draft.budget)?.label ?? '' },
     { step: 6, label: 'Imprescindibles', value: draft.mustSeeIds.length ? `${draft.mustSeeIds.length} lugar(es)` : 'Ninguno' },
   ];
@@ -738,6 +978,15 @@ const styles = StyleSheet.create({
   reviewRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, padding: Spacing.three },
   footer: { padding: Spacing.three, paddingTop: Spacing.two, borderTopWidth: 1, marginBottom: TAB_BAR_HEIGHT },
   footerInner: { width: '100%', maxWidth: 760, alignSelf: 'center' },
+  boundaryCard: { gap: Spacing.three },
+  boundaryHeading: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
+  boundaryIcon: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  twoColumns: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
+  inlineField: { minHeight: 50, flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1.5, borderRadius: Radius.md, paddingHorizontal: 13 },
+  inlineInput: { flex: 1, minWidth: 0, minHeight: 46, fontSize: 16 },
+  boundaryOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.three },
+  luggageOption: { minHeight: 50, flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: Spacing.three, borderRadius: Radius.md },
+  eventNotice: { minHeight: 66, flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: Radius.md, padding: Spacing.three },
   hotelSearch: {
     minHeight: 56,
     flexDirection: 'row',

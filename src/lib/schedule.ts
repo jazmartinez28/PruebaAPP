@@ -11,7 +11,7 @@ const ceil5 = (min: number) => Math.ceil(min / 5) * 5;
 /** Horario de inicio del día por defecto (09:00). */
 export const DEFAULT_DAY_START = 9 * 60;
 
-type Timed = { placeId: string; durationMin: number };
+type Timed = { placeId: string; durationMin: number; earliestStartMin?: number };
 
 /**
  * Asigna horarios a una lista ordenada de actividades.
@@ -27,7 +27,8 @@ export function scheduleActivities<T extends Timed>(
   let exact = startMin;
   let prevEnd = -Infinity;
   return acts.map((a, i) => {
-    const floor = minStart?.(i, a);
+    const requestedFloor = minStart?.(i, a);
+    const floor = Math.max(requestedFloor ?? -Infinity, a.earliestStartMin ?? -Infinity);
     if (floor != null && exact < floor) exact = floor;
     let display = roundNearest5(exact);
     if (display < prevEnd) display = ceil5(prevEnd);

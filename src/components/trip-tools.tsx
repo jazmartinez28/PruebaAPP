@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
 import { Linking, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { useState, type ComponentProps } from 'react';
 
@@ -12,6 +13,7 @@ import { purchaseUrlFor } from '@/lib/commerce';
 import { fmtDate } from '@/lib/dates';
 import { geocodeAccommodation, type GeocodedAccommodation } from '@/lib/place-provider';
 import { transportOptions } from '@/lib/transport';
+import { ticketInfo } from '@/lib/tickets';
 import { useStore } from '@/store/useStore';
 import type { Activity, Place, Trip } from '@/types';
 
@@ -215,8 +217,11 @@ export function TicketEditorSheet({
   const [provider, setProvider] = useState('');
   const [code, setCode] = useState('');
   const [ticketUrl, setTicketUrl] = useState('');
+  const [note, setNote] = useState('');
+  const [attachment, setAttachment] = useState<{ uri: string; name: string } | null>(null);
   if (!activity || !place) return <Sheet visible={false} onClose={onClose}>{null}</Sheet>;
   const purchaseUrl = purchaseUrlFor(place);
+  const info = ticketInfo(place);
   const day = trip.days.find((item) => item.activities.some((candidate) => candidate.id === activity.id));
 
   const save = () => {
@@ -228,16 +233,21 @@ export function TicketEditorSheet({
       confirmationCode: code.trim() || undefined,
       ticketUrl: ticketUrl.trim() || undefined,
       purchaseUrl,
+      kind: info.reservation ? 'reservation' : 'ticket',
+      note: note.trim() || undefined,
+      attachmentUri: attachment?.uri,
       date: day?.date,
     });
     setProvider('');
     setCode('');
     setTicketUrl('');
+    setNote('');
+    setAttachment(null);
     onSaved();
   };
 
   return (
-    <Sheet visible={Boolean(activity)} onClose={onClose} title={`Ticket · ${place.name}`}>
+    <Sheet visible={Boolean(activity)} onClose={onClose} title={`${info.reservation ? 'Reserva' : 'Ticket'} · ${place.name}`}>
       {purchaseUrl && (
         <Pressable onPress={() => Linking.openURL(purchaseUrl)} style={[styles.purchase, { backgroundColor: t.secondarySoft }]}>
           <View style={[styles.purchaseIcon, { backgroundColor: t.secondary }]}>
@@ -256,7 +266,26 @@ export function TicketEditorSheet({
       <FormField label="Proveedor o plataforma" value={provider} onChangeText={setProvider} placeholder="Ej. sitio oficial" />
       <FormField label="Código de confirmación" value={code} onChangeText={setCode} placeholder="Ej. ROMA-84K2" autoCapitalize="characters" />
       <FormField label="Enlace al ticket o PDF" value={ticketUrl} onChangeText={setTicketUrl} placeholder="https://…" keyboardType="url" autoCapitalize="none" />
-      <Button title="Guardar en mi viaje" icon="ticket" onPress={save} disabled={!code.trim() && !ticketUrl.trim()} style={{ marginTop: Spacing.four }} />
+      <FormField label="Nota" value={note} onChangeText={setNote} placeholder="Indicaciones, horario o titular" multiline />
+      <Pressable
+        accessibilityRole="button"
+        onPress={async () => {
+          const result = await DocumentPicker.getDocumentAsync({ type: ['application/pdf', 'image/*'], copyToCacheDirectory: true, multiple: false });
+          if (!result.canceled && result.assets[0]) setAttachment({ uri: result.assets[0].uri, name: result.assets[0].name });
+        }}
+        style={[styles.attachButton, { borderColor: attachment ? t.secondary : t.border, backgroundColor: attachment ? t.secondarySoft : t.surface }]}>
+        <Ionicons name={attachment ? 'checkmark-circle' : 'attach-outline'} size={20} color={attachment ? t.secondary : t.textSecondary} />
+        <Body style={{ flex: 1, fontWeight: '800', color: attachment ? t.secondary : t.text }} numberOfLines={1}>
+          {attachment?.name ?? 'Adjuntar PDF o imagen'}
+        </Body>
+      </Pressable>
+      <Button
+        title={info.reservation ? 'Guardar reserva' : 'Guardar en mi viaje'}
+        icon={info.reservation ? 'calendar' : 'ticket'}
+        onPress={save}
+        disabled={!code.trim() && !ticketUrl.trim() && !note.trim() && !attachment}
+        style={{ marginTop: Spacing.four }}
+      />
     </Sheet>
   );
 }
@@ -385,4 +414,5 @@ const styles = StyleSheet.create({
   inlineSearch: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1.5, borderRadius: Radius.md, paddingLeft: Spacing.three, paddingRight: 6 },
   searchButton: { width: 44, height: 44, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   input: { minHeight: 50, borderWidth: 1, borderRadius: Radius.md, paddingHorizontal: Spacing.three, fontSize: 15 },
+  attachButton: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 9, borderWidth: 1.5, borderRadius: Radius.md, paddingHorizontal: Spacing.three },
 });

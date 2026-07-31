@@ -6,9 +6,10 @@ import { REMOTE_CONFIG } from '@/constants/config';
 import { cityById } from '@/data/cities';
 import { mergeRuntimePlaces, placeById, setRuntimePlaces } from '@/data/places';
 import { generateItinerary } from '@/lib/generate';
+import { fetchTripEvents } from '@/lib/events';
 import { fetchCityPlaces } from '@/lib/place-provider';
 import { rescheduleDay } from '@/lib/trip';
-import type { Accommodation, Budget, Category, Draft, Pace, PackingCategory, Place, Ticket, Trip, User } from '@/types';
+import type { Accommodation, AppPreferences, Budget, Category, Draft, Pace, PackingCategory, Place, Ticket, Trip, User } from '@/types';
 
 const emptyDraft = (): Draft => ({
   accommodation: null,
@@ -18,17 +19,37 @@ const emptyDraft = (): Draft => ({
   mustSeeIds: [],
 });
 
+const defaultPreferences = (): AppPreferences => ({
+  language: 'es',
+  currency: 'auto',
+  travelStyle: 'equilibrado',
+  notifications: {
+    enabled: false,
+    tripReminders: true,
+    weekBefore: true,
+    dayBefore: true,
+    tripStart: true,
+    dailySummary: true,
+    firstActivity: true,
+    upcomingActivity: false,
+    activityLeadMin: 30,
+    tickets: true,
+  },
+});
+
 // Cuentas locales (demo). En producción esto lo reemplaza Supabase Auth.
 type Account = { name: string; email: string; password: string };
 
 type State = {
   hydrated: boolean;
   user: User | null;
+  preferences: AppPreferences;
   accounts: Record<string, Account>;
   draft: Draft;
   trips: Trip[];
   externalPlaces: Place[];
   catalogStatus: Record<string, 'idle' | 'loading' | 'ready' | 'error'>;
+  eventStatus: Record<string, 'idle' | 'loading' | 'ready' | 'error' | 'unconfigured'>;
   _undo: { tripId: string; days: Trip['days']; removedIds: string[] } | null;
   undo: () => void;
 
@@ -37,6 +58,10 @@ type State = {
   login: (email: string, password: string) => { ok: boolean; error?: string };
   logout: () => void;
   upgradeToPremium: () => void;
+  updateProfile: (patch: Partial<Pick<User, 'name' | 'email' | 'photoUri'>>) => { ok: boolean; error?: string };
+  changePassword: (currentPassword: string, nextPassword: string) => { ok: boolean; error?: string };
+  updatePreferences: (patch: Partial<AppPreferences>) => void;
+  deleteAccount: () => void;
 
   // draft
   setDraft: (partial: Partial<Draft>) => void;
@@ -47,6 +72,7 @@ type State = {
   setBudget: (b: Budget) => void;
   setAccommodation: (a: Accommodation) => void;
   loadCityCatalog: (cityId: string) => Promise<{ count: number; error?: string }>;
+  loadTripEvents: (cityId: string, startDate: string, endDate: string) => Promise<{ count: number; error?: string }>;
   addManualMustSee: (input: { name: string; address?: string; url?: string }) => void;
 
   // trips
@@ -55,6 +81,7 @@ type State = {
   deleteTrip: (tripId: string) => void;
   toggleSaved: (tripId: string, placeId: string) => void;
   updateTripAccommodation: (tripId: string, accommodation: Accommodation) => void;
+  setDayStart: (tripId: string, dayIndex: number, startMin: number) => void;
   addTicket: (tripId: string, ticket: Omit<Ticket, 'id' | 'createdAt'>) => void;
   removeTicket: (tripId: string, ticketId: string) => void;
   addPackingItem: (tripId: string, label: string, category: PackingCategory, suggested?: boolean) => void;
@@ -89,11 +116,13 @@ export const useStore = create<State>()(
     (set, get) => ({
       hydrated: false,
       user: null,
+      preferences: defaultPreferences(),
       accounts: {},
       draft: emptyDraft(),
       trips: [],
       externalPlaces: [],
       catalogStatus: {},
+      eventStatus: {},
       _undo: null,
 
       undo: () =>
@@ -108,7 +137,7 @@ export const useStore = create<State>()(
 
       signup: (name, email, password) => {
         email = email.trim().toLowerCase();
-        if (!name.trim() || !email || password.length < 4) return { ok: false, error: 'Completá los datos (contraseña de 4+).' };
+        if (!name.trim() || !/^\S+@\S+\.\S+$/.test(email) || password.length < 8) return { ok: false, error: 'Completá los datos y usá una contraseña de al menos 8 caracteres.' };
         if (get().accounts[email]) return { ok: false, error: 'Ya existe una cuenta con ese correo.' };
         const user: User = { id: newId('u'), email, name: name.trim(), plan: 'gratis' };
         set((s) => ({ accounts: { ...s.accounts, [email]: { name: name.trim(), email, password } }, user }));
@@ -123,6 +152,50 @@ export const useStore = create<State>()(
       },
       logout: () => set({ user: null }),
       upgradeToPremium: () => set((s) => (s.user ? { user: { ...s.user, plan: 'premium' } } : {})),
+      updateProfile: (patch) => {
+        const current = get().user;
+        if (!current) return { ok: false, error: 'Iniciá sesión para editar tu perfil.' };
+        const email = patch.email?.trim().toLowerCase() ?? current.email;
+        const name = patch.name?.trim() ?? current.name;
+        if (!name || !/^\S+@\S+\.\S+$/.test(email)) return { ok: false, error: 'Revisá el nombre y el correo.' };
+        if (email !== current.email && get().accounts[email]) return { ok: false, error: 'Ese correo ya está en uso.' };
+        set((state) => {
+          const account = state.accounts[current.email];
+          const accounts = { ...state.accounts };
+          if (account) {
+            delete accounts[current.email];
+            accounts[email] = { ...account, name, email };
+          }
+          return { accounts, user: { ...current, ...patch, name, email } };
+        });
+        return { ok: true };
+      },
+      changePassword: (currentPassword, nextPassword) => {
+        const current = get().user;
+        if (!current) return { ok: false, error: 'Iniciá sesión para cambiar tu contraseña.' };
+        const account = get().accounts[current.email];
+        if (!account || account.password !== currentPassword) return { ok: false, error: 'La contraseña actual no es correcta.' };
+        if (nextPassword.length < 8) return { ok: false, error: 'La nueva contraseña debe tener al menos 8 caracteres.' };
+        set((state) => ({ accounts: { ...state.accounts, [current.email]: { ...account, password: nextPassword } } }));
+        return { ok: true };
+      },
+      updatePreferences: (patch) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            ...patch,
+            notifications: patch.notifications
+              ? { ...state.preferences.notifications, ...patch.notifications }
+              : state.preferences.notifications,
+          },
+        })),
+      deleteAccount: () =>
+        set((state) => {
+          if (!state.user) return {};
+          const accounts = { ...state.accounts };
+          delete accounts[state.user.email];
+          return { user: null, accounts, trips: [], draft: emptyDraft(), preferences: defaultPreferences() };
+        }),
 
       setDraft: (partial) => set((s) => ({ draft: { ...s.draft, ...partial } })),
       resetDraft: () => set({ draft: emptyDraft() }),
@@ -173,6 +246,42 @@ export const useStore = create<State>()(
             count: existing.length,
             error: error instanceof Error ? error.message : 'No pudimos ampliar el catálogo',
           };
+        }
+      },
+      loadTripEvents: async (cityId, startDate, endDate) => {
+        const key = `${cityId}:${startDate}:${endDate}`;
+        const existing = get().externalPlaces.filter(
+          (place) =>
+            place.cityId === cityId &&
+            place.kind === 'event' &&
+            Boolean(place.eventDate && place.eventDate >= startDate && place.eventDate <= endDate),
+        );
+        if (existing.length) {
+          mergeRuntimePlaces(existing);
+          set((state) => ({ eventStatus: { ...state.eventStatus, [key]: 'ready' } }));
+          return { count: existing.length };
+        }
+        const city = cityById(cityId);
+        if (!city) return { count: 0, error: 'Ciudad no disponible' };
+        if (!process.env.EXPO_PUBLIC_TICKETMASTER_API_KEY) {
+          set((state) => ({ eventStatus: { ...state.eventStatus, [key]: 'unconfigured' } }));
+          return { count: 0, error: 'Proveedor de eventos sin configurar' };
+        }
+        set((state) => ({ eventStatus: { ...state.eventStatus, [key]: 'loading' } }));
+        try {
+          const events = await fetchTripEvents(city, startDate, endDate);
+          mergeRuntimePlaces(events);
+          set((state) => {
+            const ids = new Set(events.map((event) => event.id));
+            return {
+              externalPlaces: [...state.externalPlaces.filter((place) => !ids.has(place.id)), ...events],
+              eventStatus: { ...state.eventStatus, [key]: 'ready' },
+            };
+          });
+          return { count: events.length };
+        } catch (error) {
+          set((state) => ({ eventStatus: { ...state.eventStatus, [key]: 'error' } }));
+          return { count: 0, error: error instanceof Error ? error.message : 'No pudimos consultar eventos' };
         }
       },
       addManualMustSee: (input) =>
@@ -249,6 +358,19 @@ export const useStore = create<State>()(
           dayStartMin: draft.dayStartMin,
           partySize: draft.partySize,
           groupType: draft.groupType,
+          arrivalTime: draft.arrivalTime,
+          departureTime: draft.departureTime,
+          arrivalPlace: draft.arrivalPlace,
+          departurePlace: draft.departurePlace,
+          arrivalType: draft.arrivalType,
+          departureType: draft.departureType,
+          arrivalBufferMin: draft.arrivalBufferMin,
+          arrivalTransferMin: draft.arrivalTransferMin,
+          departureLeadMin: draft.departureLeadMin,
+          departureTransferMin: draft.departureTransferMin,
+          checkInTime: draft.checkInTime,
+          checkOutTime: draft.checkOutTime,
+          canLeaveLuggage: draft.canLeaveLuggage,
           savedIds: [],
           removedIds: [],
           tickets: [],
@@ -290,6 +412,16 @@ export const useStore = create<State>()(
           trips: s.trips.map((trip) =>
             trip.id === tripId ? touch({ ...trip, accommodation }) : trip,
           ),
+        })),
+      setDayStart: (tripId, dayIndex, startMin) =>
+        set((state) => ({
+          trips: state.trips.map((trip) => {
+            if (trip.id !== tripId) return trip;
+            const days = trip.days.map((day, index) =>
+              index === dayIndex ? rescheduleDay({ ...day, startMin: Math.max(0, Math.min(1435, startMin)) }) : day,
+            );
+            return touch({ ...trip, days });
+          }),
         })),
       addTicket: (tripId, ticket) =>
         set((s) => ({
@@ -498,6 +630,7 @@ export const useStore = create<State>()(
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (s) => ({
         user: s.user,
+        preferences: s.preferences,
         accounts: s.accounts,
         draft: s.draft,
         trips: s.trips,
@@ -505,6 +638,14 @@ export const useStore = create<State>()(
       }),
       onRehydrateStorage: () => (state) => {
         if (state) {
+          state.preferences = {
+            ...defaultPreferences(),
+            ...(state.preferences ?? {}),
+            notifications: {
+              ...defaultPreferences().notifications,
+              ...(state.preferences?.notifications ?? {}),
+            },
+          };
           state.trips = state.trips.map((trip) => ({
             ...trip,
             tickets: trip.tickets ?? [],

@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, View } from 'react-native';
 
@@ -9,10 +10,12 @@ import { useTheme } from '@/hooks/use-theme';
 import { useStore } from '@/store/useStore';
 
 const ITEMS = [
-  { icon: 'globe-outline', label: 'Idioma y moneda' },
-  { icon: 'notifications-outline', label: 'Notificaciones' },
-  { icon: 'shield-checkmark-outline', label: 'Privacidad' },
-  { icon: 'help-circle-outline', label: 'Ayuda' },
+  { icon: 'person-outline', label: 'Datos personales', section: 'account' },
+  { icon: 'globe-outline', label: 'Idioma, moneda y preferencias', section: 'preferences' },
+  { icon: 'notifications-outline', label: 'Notificaciones', section: 'notifications' },
+  { icon: 'shield-checkmark-outline', label: 'Privacidad y eliminar cuenta', section: 'privacy' },
+  { icon: 'help-circle-outline', label: 'Ayuda', section: 'help' },
+  { icon: 'document-text-outline', label: 'Términos y política de privacidad', section: 'terms' },
 ] as const;
 
 export default function PerfilScreen() {
@@ -27,9 +30,13 @@ export default function PerfilScreen() {
       <H1>Perfil</H1>
 
       <Card style={styles.userRow}>
-        <View style={[styles.avatar, { backgroundColor: t.primarySoft }]}>
-          <Ionicons name="person" size={26} color={t.primary} />
-        </View>
+        {user?.photoUri ? (
+          <Image source={user.photoUri} style={styles.avatar} contentFit="cover" transition={180} />
+        ) : (
+          <View style={[styles.avatar, { backgroundColor: t.primarySoft }]}>
+            <Body style={{ color: t.primary, fontSize: 22, fontWeight: '900' }}>{user?.name?.slice(0, 1).toUpperCase() ?? 'V'}</Body>
+          </View>
+        )}
         <View style={{ flex: 1 }}>
           <Body style={{ fontWeight: '700', fontSize: 17 }}>{user ? user.name : 'Invitado'}</Body>
           <Body muted style={{ fontSize: 13 }}>
@@ -62,11 +69,15 @@ export default function PerfilScreen() {
 
       <Card style={{ padding: 0 }}>
         {ITEMS.map((it, i) => (
-          <View key={it.label} style={[styles.item, i < ITEMS.length - 1 && { borderBottomWidth: 1, borderBottomColor: t.border }]}>
+          <Pressable
+            key={it.label}
+            accessibilityRole="button"
+            onPress={() => router.push({ pathname: '/settings' as any, params: { section: it.section } })}
+            style={({ pressed }) => [styles.item, i < ITEMS.length - 1 && { borderBottomWidth: 1, borderBottomColor: t.border }, pressed && { opacity: 0.68 }]}>
             <Ionicons name={it.icon as any} size={22} color={t.textSecondary} />
             <Body style={{ flex: 1 }}>{it.label}</Body>
             <Ionicons name="chevron-forward" size={18} color={t.textSecondary} />
-          </View>
+          </Pressable>
         ))}
       </Card>
 

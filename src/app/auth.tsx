@@ -71,7 +71,7 @@ export default function AuthScreen() {
       </View>
 
       <Body muted style={{ textAlign: 'center', fontSize: 11, padding: Spacing.three }}>
-        Cuenta local de demostración. Se integrará con inicio de sesión real (Google / Apple / Supabase).
+        La cuenta se guarda en este dispositivo. La recuperación por correo y la sincronización requieren configurar un proveedor de autenticación.
       </Body>
     </SafeAreaView>
   );

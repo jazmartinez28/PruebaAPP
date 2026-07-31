@@ -7,6 +7,7 @@ export type VisualCategory =
   | 'historia'
   | 'compras'
   | 'nocturna'
+  | 'evento'
   | 'traslado'
   | 'alojamiento';
 
@@ -17,11 +18,13 @@ export const CATEGORY_VISUAL: Record<VisualCategory, { label: string; color: str
   historia: { label: 'Historia', color: '#B36A19', soft: '#FFF3DF', icon: 'business-outline' },
   compras: { label: 'Compras', color: '#B54179', soft: '#FCEAF3', icon: 'bag-handle-outline' },
   nocturna: { label: 'Vida nocturna', color: '#4254A7', soft: '#EAEDFF', icon: 'moon-outline' },
+  evento: { label: 'Evento', color: '#C24164', soft: '#FDEBF1', icon: 'calendar-outline' },
   traslado: { label: 'Traslado', color: '#137A83', soft: '#E4F5F0', icon: 'navigate-outline' },
   alojamiento: { label: 'Alojamiento', color: '#344054', soft: '#EEF0F3', icon: 'bed-outline' },
 };
 
 export function visualCategory(place: Place): VisualCategory {
+  if (place.kind === 'event') return 'evento';
   if (place.isMeal || place.categories.includes('gastronomia')) return 'gastronomia';
   if (place.categories.some((c) => c === 'parques' || c === 'naturaleza' || c === 'deportes')) return 'naturaleza';
   if (place.categories.includes('compras')) return 'compras';

@@ -1,12 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Linking, Platform, Pressable, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
+import { Linking, Platform, Pressable, ScrollView, Share, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CityImage } from '@/components/city-image';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PackingList } from '@/components/packing-list';
+import { PlaceImage } from '@/components/place-image';
 import { Sheet } from '@/components/sheet';
 import { AccommodationSheet, TicketEditorSheet, TransportSheet } from '@/components/trip-tools';
 import { Body, Button, Card, Chip, H2, Label } from '@/components/ui';
@@ -24,6 +26,7 @@ import { tripStats } from '@/lib/generate';
 import { recommendedTransport } from '@/lib/transport';
 import { ticketInfo } from '@/lib/tickets';
 import { getAlternatives, tripStatusOf, type AltFilter } from '@/lib/trip';
+import { exportTripCalendar, shareCalendarFile, shareTripPdf, type ExportDetail } from '@/lib/trip-export';
 import { RouteMap, type MapStop } from '@/components/route-map';
 import { useStore } from '@/store/useStore';
 import type { Activity, Place, Trip } from '@/types';
@@ -64,10 +67,11 @@ export default function TripScreen() {
   const [replaceAct, setReplaceAct] = useState<Activity | null>(null);
   const [moveAct, setMoveAct] = useState<Activity | null>(null);
   const [addDay, setAddDay] = useState<number | null>(null);
-  const [share, setShare] = useState(false);
+  const [share, setShare] = useState(action === 'share');
   const [transportLeg, setTransportLeg] = useState<{ from: Place; to: Place } | null>(null);
   const [ticketActivity, setTicketActivity] = useState<Activity | null>(null);
   const [editActivity, setEditActivity] = useState<Activity | null>(null);
+  const [editDayStart, setEditDayStart] = useState<number | null>(null);
   const [editHotel, setEditHotel] = useState(action === 'hotel');
   const [pendingDeleteAct, setPendingDeleteAct] = useState<Activity | null>(null);
   const [confirmTripDelete, setConfirmTripDelete] = useState(false);
@@ -173,6 +177,7 @@ export default function TripScreen() {
             onToast={showToast}
             onMap={() => setTab('mapa')}
             onEdit={setEditActivity}
+            onEditDayStart={setEditDayStart}
           />
         )}
         {tab === 'mapa' && <MapaTab trip={trip} day={day} setDay={setDay} onActivity={setDetailAct} onPlan={() => setTab('itinerario')} />}
@@ -249,6 +254,12 @@ export default function TripScreen() {
         activity={editActivity}
         onClose={() => setEditActivity(null)}
         onSaved={() => { setEditActivity(null); showToast('Actividad actualizada', true); }}
+      />
+      <DayStartSheet
+        trip={trip}
+        dayIndex={editDayStart}
+        onClose={() => setEditDayStart(null)}
+        onSaved={() => { setEditDayStart(null); showToast('Horario del día actualizado', true); }}
       />
 
       {/* Confirmación: eliminar actividad */}
@@ -410,6 +421,34 @@ function ResumenTab({
         </Pressable>
       </View>
 
+      {(trip.arrivalTime != null || trip.departureTime != null) && (
+        <Card style={styles.logisticsCard}>
+          <View style={styles.logisticsHeading}>
+            <View style={[styles.tripToolIcon, { backgroundColor: t.secondarySoft }]}>
+              <Ionicons name="navigate-outline" size={20} color={t.secondary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Body style={{ fontWeight: '900' }}>Llegada y salida protegidas</Body>
+              <Body muted style={{ fontSize: 12 }}>El plan deja margen para equipaje y traslados.</Body>
+            </View>
+          </View>
+          {trip.arrivalTime != null && (
+            <InfoLine
+              icon="log-in-outline"
+              label="Llegada"
+              value={`${minToHHMM(trip.arrivalTime)} · ${trip.arrivalPlace || 'Punto de llegada'} · ${trip.arrivalBufferMin ?? 45} min de margen`}
+            />
+          )}
+          {trip.departureTime != null && (
+            <InfoLine
+              icon="log-out-outline"
+              label="Salida"
+              value={`${minToHHMM(trip.departureTime)} · ${trip.departurePlace || 'Punto de salida'} · llegar ${trip.departureLeadMin ?? 120} min antes`}
+            />
+          )}
+        </Card>
+      )}
+
       <View style={{ gap: Spacing.two }}>
         <H2>Zonas por día</H2>
         {trip.days.map((d, i) => (
@@ -465,6 +504,7 @@ function ItinerarioTab({
   onToast,
   onMap,
   onEdit,
+  onEditDayStart,
 }: {
   trip: Trip;
   day: number;
@@ -475,6 +515,7 @@ function ItinerarioTab({
   onToast: (message: string, undo?: boolean) => void;
   onMap: () => void;
   onEdit: (activity: Activity) => void;
+  onEditDayStart: (dayIndex: number) => void;
 }) {
   const t = useTheme();
   const moveWithinDay = useStore((s) => s.moveActivityWithinDay);
@@ -508,8 +549,15 @@ function ItinerarioTab({
         </Card>
       ) : (
         <>
-          <DayHeader day={d} index={day} accommodation={trip.accommodation} />
+          <DayHeader day={d} index={day} accommodation={trip.accommodation} onEditStart={() => onEditDayStart(day)} />
           <View>
+            {day === 0 && trip.arrivalTime != null && (
+              <TravelBoundaryTimelineRow
+                icon="log-in-outline"
+                title={`Llegada · ${minToHHMM(trip.arrivalTime)}`}
+                detail={`${trip.arrivalPlace || 'Punto de llegada'} · ${(trip.arrivalBufferMin ?? 45) + (trip.arrivalTransferMin ?? 45)} min previstos antes de comenzar`}
+              />
+            )}
             {hotelPlace && d.activities[0] && (
               <>
                 <AccommodationTimelineRow accommodation={trip.accommodation!} label="Salida desde tu alojamiento" />
@@ -579,11 +627,45 @@ function ItinerarioTab({
                 <AccommodationTimelineRow accommodation={trip.accommodation!} label="Regreso al alojamiento" />
               </>
             )}
+            {day === trip.days.length - 1 && trip.departureTime != null && (
+              <TravelBoundaryTimelineRow
+                icon="log-out-outline"
+                title={`Salida · ${minToHHMM(trip.departureTime)}`}
+                detail={`${trip.departurePlace || 'Punto de salida'} · ${(trip.departureLeadMin ?? 120) + (trip.departureTransferMin ?? 45)} min protegidos al final del día`}
+              />
+            )}
           </View>
           <Button title="Agregar lugar a este día" icon="add" variant="ghost" size="md" onPress={() => onAdd(day)} />
         </>
       )}
     </>
+  );
+}
+
+function TravelBoundaryTimelineRow({
+  icon,
+  title,
+  detail,
+}: {
+  icon: 'log-in-outline' | 'log-out-outline';
+  title: string;
+  detail: string;
+}) {
+  const t = useTheme();
+  return (
+    <View style={styles.actRow}>
+      <View style={{ width: 52 }} />
+      <View style={[styles.actDot, { backgroundColor: t.textSecondary }]}>
+        <Ionicons name={icon} size={12} color="#fff" />
+      </View>
+      <View style={[styles.boundaryTimeline, { backgroundColor: t.backgroundElement, borderColor: t.border }]}>
+        <Ionicons name={icon} size={20} color={t.textSecondary} />
+        <View style={{ flex: 1 }}>
+          <Body style={{ fontWeight: '900' }}>{title}</Body>
+          <Body muted style={{ fontSize: 12 }}>{detail}</Body>
+        </View>
+      </View>
+    </View>
   );
 }
 
@@ -644,7 +726,17 @@ function TransportTimelineRow({
   );
 }
 
-function DayHeader({ day, index, accommodation }: { day: Trip['days'][number]; index: number; accommodation: Trip['accommodation'] }) {
+function DayHeader({
+  day,
+  index,
+  accommodation,
+  onEditStart,
+}: {
+  day: Trip['days'][number];
+  index: number;
+  accommodation: Trip['accommodation'];
+  onEditStart: () => void;
+}) {
   const t = useTheme();
   const acts = day.activities;
   const startMin = acts[0]?.startMin ?? 0;
@@ -674,8 +766,24 @@ function DayHeader({ day, index, accommodation }: { day: Trip['days'][number]; i
   }
   return (
     <Card style={{ gap: 6 }}>
-      <Label style={{ color: t.secondary }}>Día {index + 1} · {day.zone}</Label>
-      <Body style={{ fontWeight: '800', fontSize: 18 }}>{fmtDate(day.date)}</Body>
+      <View style={styles.dayHeadingRow}>
+        <View style={{ flex: 1, gap: 3 }}>
+          <Label style={{ color: t.secondary }}>Día {index + 1} · {day.zone}</Label>
+          <Body style={{ fontWeight: '800', fontSize: 18 }}>{fmtDate(day.date)}</Body>
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Cambiar hora de inicio del Día ${index + 1}`}
+          onPress={onEditStart}
+          style={({ pressed }) => [
+            styles.dayStartButton,
+            { backgroundColor: t.primarySoft, borderColor: t.primary + '44' },
+            pressed && { opacity: 0.72 },
+          ]}>
+          <Ionicons name="time-outline" size={17} color={t.primary} />
+          <Body style={{ color: t.primary, fontWeight: '900', fontSize: 12 }}>Cambiar inicio</Body>
+        </Pressable>
+      </View>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.three, marginTop: 4 }}>
         <MiniStat icon="time" text={`${minToHHMM(startMin)}–${minToHHMM(endMin)}`} />
         <MiniStat icon="location" text={`${acts.length} actividades`} />
@@ -683,6 +791,70 @@ function DayHeader({ day, index, accommodation }: { day: Trip['days'][number]; i
         <MiniStat icon="bus" text={`${travel} min traslados`} />
       </View>
     </Card>
+  );
+}
+
+function DayStartSheet({
+  trip,
+  dayIndex,
+  onClose,
+  onSaved,
+}: {
+  trip: Trip;
+  dayIndex: number | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const t = useTheme();
+  const setDayStart = useStore((s) => s.setDayStart);
+  const [time, setTime] = useState('09:00');
+  const [error, setError] = useState<string | null>(null);
+  const selectedDay = dayIndex === null ? undefined : trip.days[dayIndex];
+
+  useEffect(() => {
+    if (!selectedDay) return;
+    setTime(minToHHMM(selectedDay.startMin ?? selectedDay.activities[0]?.startMin ?? trip.dayStartMin ?? 540));
+    setError(null);
+  }, [selectedDay, trip.dayStartMin]);
+
+  const save = () => {
+    if (dayIndex === null) return;
+    const match = time.trim().match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+    if (!match) {
+      setError('Ingresá una hora válida, por ejemplo 09:30.');
+      return;
+    }
+    setDayStart(trip.id, dayIndex, Number(match[1]) * 60 + Number(match[2]));
+    onSaved();
+  };
+
+  return (
+    <Sheet visible={dayIndex !== null} onClose={onClose} title={`Hora de inicio · Día ${(dayIndex ?? 0) + 1}`}>
+      <View style={{ gap: Spacing.three }}>
+        <Body muted>
+          Recalcularemos los horarios y traslados de este día sin cambiar el orden de tus actividades.
+        </Body>
+        <View style={styles.timePresets}>
+          {['08:00', '09:00', '10:00', '11:00'].map((preset) => (
+            <Chip key={preset} label={preset} selected={time === preset} onPress={() => { setTime(preset); setError(null); }} />
+          ))}
+        </View>
+        <View style={{ gap: 6 }}>
+          <Label>Hora personalizada</Label>
+          <TextInput
+            accessibilityLabel="Hora personalizada de inicio"
+            value={time}
+            onChangeText={(value) => { setTime(value); setError(null); }}
+            placeholder="09:30"
+            keyboardType="numbers-and-punctuation"
+            placeholderTextColor={t.textSecondary}
+            style={[styles.editInput, { color: t.text, borderColor: error ? t.error : t.border }]}
+          />
+          {error && <Body style={{ color: t.error, fontSize: 12 }}>{error}</Body>}
+        </View>
+        <Button title="Recalcular este día" icon="sparkles-outline" onPress={save} />
+      </View>
+    </Sheet>
   );
 }
 
@@ -718,8 +890,9 @@ function TimelineActivity({
         <Ionicons name={activity.mustSee ? 'star' : visual.icon} size={11} color="#fff" />
       </View>
       <Pressable onPress={onPress} style={{ flex: 1 }}>
-      <Card style={{ gap: 5 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+      <Card style={{ gap: 7 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
+          <PlaceImage place={p} compact style={styles.activityThumb} />
           <Body style={{ fontWeight: '700', flex: 1 }}>{p.name}</Body>
           <View style={styles.reorderActions}>
             <Pressable
@@ -867,11 +1040,11 @@ function TicketsTab({
   const allActs = trip.days.flatMap((day) => day.activities);
   const needTicket = allActs.filter((a) => {
     const p = placeById(a.placeId);
-    return p ? ticketInfo(p).ticket : false;
+    return p ? ticketInfo(p).ticket && !tickets.some((ticket) => ticket.activityId === a.id) : false;
   });
   const needReservation = allActs.filter((a) => {
     const p = placeById(a.placeId);
-    return p ? ticketInfo(p).reservation : false;
+    return p ? ticketInfo(p).reservation && !tickets.some((ticket) => ticket.activityId === a.id) : false;
   });
   const noTicketCount = allActs.filter((a) => {
     const p = placeById(a.placeId);
@@ -947,6 +1120,16 @@ function TicketsTab({
                           style={{ flex: 1 }}
                         />
                       )}
+                      {ticket.attachmentUri && (
+                        <Button
+                          title="Ver archivo"
+                          icon="attach-outline"
+                          size="md"
+                          variant="ghost"
+                          onPress={() => Linking.openURL(ticket.attachmentUri!)}
+                          style={{ flex: 1 }}
+                        />
+                      )}
                       {ticket.activityId && (
                         <Button
                           title="Ver actividad"
@@ -972,7 +1155,7 @@ function TicketsTab({
 
       {needTicket.length > 0 && (
         <View style={{ gap: Spacing.two }}>
-          <H2>Entradas a conseguir</H2>
+          <H2>Tickets pendientes</H2>
           {needTicket.map((activity) => {
             const place = placeById(activity.placeId);
             const saved = tickets.some((ticket) => ticket.activityId === activity.id);
@@ -998,7 +1181,7 @@ function TicketsTab({
 
       {needReservation.length > 0 && (
         <View style={{ gap: Spacing.two }}>
-          <H2>Para reservar (sin ticket)</H2>
+          <H2>Reservas pendientes</H2>
           {needReservation.map((activity) => {
             const place = placeById(activity.placeId);
             if (!place) return null;
@@ -1008,7 +1191,7 @@ function TicketsTab({
                   <Ionicons name="restaurant-outline" size={21} color={t.warning} />
                   <View style={{ flex: 1 }}>
                     <Body style={{ fontWeight: '700' }}>{place.name}</Body>
-                    <Body muted style={{ fontSize: 12 }}>Conviene reservar mesa con anticipación</Body>
+                    <Body muted style={{ fontSize: 12 }}>{ticketInfo(place).label}</Body>
                   </View>
                   <Ionicons name="chevron-forward" size={17} color={t.textSecondary} />
                 </Card>
@@ -1150,7 +1333,7 @@ function ActivityDetailSheet({
 
   return (
     <Sheet visible={!!activity} onClose={onClose} title={p.name}>
-      <CityImage city={city} scrim={0.25} style={styles.detailHero} />
+      <PlaceImage place={p} style={styles.detailHero} />
 
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: Spacing.three, flexWrap: 'wrap' }}>
         <View style={[styles.categoryBadge, { backgroundColor: visual.soft }]}>
@@ -1212,12 +1395,18 @@ function ActivityDetailSheet({
         <Action icon="calendar" label="Mover de día" onPress={() => onMove(activity)} />
         <Action icon={saved ? 'bookmark' : 'bookmark-outline'} label={saved ? 'Guardado' : 'Guardar'} onPress={() => { toggleSaved(trip.id, p.id); onToast(saved ? 'Quitado de guardados' : 'Lugar guardado'); }} />
         <Action icon="map" label="Abrir en Maps" onPress={openMaps} />
-        <Action icon="ticket-outline" label="Guardar ticket" onPress={() => onTicket(activity)} />
+        {(ti.ticket || ti.reservation) && (
+          <Action
+            icon={ti.reservation ? 'calendar-outline' : 'ticket-outline'}
+            label={ti.reservation ? 'Guardar reserva' : 'Guardar ticket'}
+            onPress={() => onTicket(activity)}
+          />
+        )}
         <Action icon="trash" label="Eliminar" danger onPress={() => onRequestDelete(activity)} />
       </View>
 
       <Body muted style={{ fontSize: 11, marginTop: Spacing.three, textAlign: 'center' }}>
-        Fuente: {p.source === 'openstreetmap' ? 'OpenStreetMap' : 'selección curada'} · Verificá horarios y precios en el sitio oficial
+        Fuente: {p.source === 'openstreetmap' ? 'OpenStreetMap' : p.source === 'ticketmaster' ? 'Ticketmaster' : 'selección curada'} · Verificá horarios y precios en el sitio oficial
       </Body>
     </Sheet>
   );
@@ -1433,27 +1622,50 @@ function AddSheet({ trip, dayIndex, onClose, onDone }: { trip: Trip; dayIndex: n
 
 function ShareSheet({ trip, visible, onClose, onToast }: { trip: Trip; visible: boolean; onClose: () => void; onToast: (m: string) => void }) {
   const t = useTheme();
-  const text = `Mirá mi viaje a ${trip.cityName} (${fmtRange(trip.startDate, trip.endDate)}) armado con Rumbo ✈️`;
+  const [detail, setDetail] = useState<ExportDetail>('complete');
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const text = `Mi viaje a ${trip.cityName}\n${fmtRange(trip.startDate, trip.endDate)}\n${trip.days.length} días · ${trip.days.flatMap((day) => day.activities).length} actividades\nArmado con Rumbo`;
+  const run = async (key: string, action: () => Promise<unknown>, success: string) => {
+    setBusy(key); setError(null);
+    try { await action(); onToast(success); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'No pudimos completar la acción.'); }
+    finally { setBusy(null); }
+  };
   const opts = [
-    { icon: 'logo-whatsapp', label: 'WhatsApp', onPress: () => { Linking.openURL(`https://wa.me/?text=${encodeURIComponent(text)}`); onClose(); } },
-    {
-      icon: 'link', label: 'Copiar enlace', onPress: async () => {
-        try { if (typeof navigator !== 'undefined' && navigator.clipboard) await navigator.clipboard.writeText(text); } catch {}
-        onClose(); onToast('Enlace copiado');
-      },
-    },
-    { icon: 'eye', label: 'Solo lectura', onPress: () => { onClose(); onToast('Enlace de solo lectura creado'); } },
+    { icon: 'share-social-outline', label: 'Menú del dispositivo', key: 'native', onPress: () => run('native', () => Share.share({ title: `Viaje a ${trip.cityName}`, message: text }), 'Menú para compartir abierto') },
+    { icon: 'logo-whatsapp', label: 'WhatsApp', key: 'whatsapp', onPress: async () => { const url = `https://wa.me/?text=${encodeURIComponent(text)}`; if (!await Linking.canOpenURL(url)) throw new Error('WhatsApp no está disponible.'); await Linking.openURL(url); } },
+    { icon: 'copy-outline', label: 'Copiar resumen', key: 'copy', onPress: () => run('copy', () => Clipboard.setStringAsync(text), 'Resumen copiado') },
+    { icon: 'document-text-outline', label: 'Compartir PDF', key: 'pdf', onPress: () => run('pdf', () => shareTripPdf(trip, detail), 'PDF preparado para compartir') },
+    { icon: 'calendar-outline', label: 'Agregar al calendario', key: 'calendar', onPress: () => run('calendar', () => exportTripCalendar(trip), 'Actividades agregadas al calendario') },
+    { icon: 'download-outline', label: 'Compartir archivo .ics', key: 'ics', onPress: () => run('ics', () => shareCalendarFile(trip), 'Calendario preparado para compartir') },
+    { icon: 'mail-outline', label: 'Enviar por correo', key: 'mail', onPress: () => Linking.openURL(`mailto:?subject=${encodeURIComponent(`Viaje a ${trip.cityName}`)}&body=${encodeURIComponent(text)}`) },
   ];
   return (
     <Sheet visible={visible} onClose={onClose} title="Compartir viaje">
+      <View style={{ gap: 7 }}>
+        <Label>Contenido del PDF</Label>
+        <View style={styles.timePresets}>
+          <Chip label="Resumen" selected={detail === 'summary'} onPress={() => setDetail('summary')} />
+          <Chip label="Completo" selected={detail === 'complete'} onPress={() => setDetail('complete')} />
+        </View>
+      </View>
       {opts.map((o) => (
-        <Pressable key={o.label} onPress={o.onPress}>
+        <Pressable key={o.label} disabled={Boolean(busy)} onPress={o.onPress}>
           <Card style={styles.altRow}>
             <Ionicons name={o.icon as any} size={22} color={t.primary} />
             <Body style={{ flex: 1, fontWeight: '600' }}>{o.label}</Body>
+            {busy === o.key ? <Body muted style={{ fontSize: 12 }}>Preparando…</Body> : <Ionicons name="chevron-forward" size={17} color={t.textSecondary} />}
           </Card>
         </Pressable>
       ))}
+      <View style={[styles.sharePrivacy, { backgroundColor: t.backgroundElement }]}>
+        <Ionicons name="lock-closed-outline" size={19} color={t.textSecondary} />
+        <Body muted style={{ flex: 1, fontSize: 12 }}>
+          Los enlaces públicos y las invitaciones no se muestran hasta configurar un backend con permisos. El PDF omite códigos de confirmación y datos personales.
+        </Body>
+      </View>
+      {error && <Body style={{ color: t.error, fontSize: 12 }}>{error}</Body>}
     </Sheet>
   );
 }
@@ -1562,8 +1774,13 @@ const styles = StyleSheet.create({
   statBox: { flexGrow: 1, flexBasis: '22%', alignItems: 'center', gap: 3, paddingVertical: Spacing.three },
   zoneRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
   dayBadge: { width: 36, height: 36, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
+  dayHeadingRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  dayStartButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, borderRadius: Radius.md, borderWidth: 1 },
+  timePresets: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   alert: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, borderWidth: 1.5 },
   tripTools: { gap: Spacing.two },
+  logisticsCard: { gap: Spacing.two },
+  logisticsHeading: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three, marginBottom: 2 },
   tripTool: {
     minHeight: 62,
     flexDirection: 'row',
@@ -1577,6 +1794,7 @@ const styles = StyleSheet.create({
   actRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
   actDot: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
   hotelTimeline: { flex: 1, minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: Radius.md, paddingHorizontal: Spacing.three },
+  boundaryTimeline: { flex: 1, minHeight: 66, flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: Radius.md, borderWidth: 1, paddingHorizontal: Spacing.three },
   activityMeta: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   categoryBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 5, borderRadius: Radius.pill },
   quickActions: { flexDirection: 'row', borderTopWidth: 1, marginTop: 7, paddingTop: 8 },
@@ -1595,7 +1813,8 @@ const styles = StyleSheet.create({
   countPill: { paddingHorizontal: 9, paddingVertical: 2, borderRadius: Radius.pill },
   placeRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, paddingVertical: Spacing.two },
   placeCategoryIcon: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
-  detailHero: { height: 120, borderRadius: Radius.lg, alignItems: 'center', justifyContent: 'center', marginTop: Spacing.one },
+  detailHero: { width: '100%', height: 190, borderRadius: Radius.lg, alignItems: 'center', justifyContent: 'center', marginTop: Spacing.one },
+  activityThumb: { width: 48, height: 48, borderRadius: 14 },
   bookingPanel: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1622,6 +1841,7 @@ const styles = StyleSheet.create({
   ticketGlyph: { width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   codeBox: { borderRadius: Radius.md, padding: Spacing.three, gap: 3 },
   ticketActions: { flexDirection: 'row', gap: Spacing.two },
+  sharePrivacy: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, padding: Spacing.three, borderRadius: Radius.md },
   dayPill: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: Radius.md, borderWidth: 1.5, alignItems: 'center' },
   daySelectorViewport: { flexGrow: 0, width: '100%', minHeight: 64, maxHeight: 76 },
   daySelectorContent: { gap: 8, alignItems: 'center', paddingRight: Spacing.three },

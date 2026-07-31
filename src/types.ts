@@ -20,6 +20,15 @@ export type Category =
 export type Pace = 'tranquilo' | 'equilibrado' | 'intenso';
 export type Budget = 'economico' | 'moderado' | 'comodo' | 'premium' | 'noindica';
 export type GroupType = 'solo' | 'pareja' | 'amigos' | 'familia' | 'trabajo' | 'otro';
+export type TravelPointType = 'aeropuerto' | 'estacion' | 'terminal' | 'puerto' | 'direccion' | 'otro';
+export type TicketRequirement =
+  | 'none'
+  | 'free'
+  | 'optional'
+  | 'recommended'
+  | 'required'
+  | 'reservation'
+  | 'unconfirmed';
 export type PriceTier = 0 | 1 | 2 | 3; // 0 gratis, 1 $, 2 $$, 3 $$$
 
 /** Lugar (punto de interés, restaurante, actividad). */
@@ -45,7 +54,14 @@ export type Place = {
   address?: string;
   officialUrl?: string;
   bookingUrl?: string;
-  source?: 'curated' | 'openstreetmap';
+  imageUrl?: string;
+  kind?: 'place' | 'event';
+  eventDate?: string;
+  eventStartMin?: number;
+  eventEndMin?: number;
+  availability?: 'onsale' | 'limited' | 'offsale' | 'unknown';
+  ticketRequirement?: TicketRequirement;
+  source?: 'curated' | 'openstreetmap' | 'ticketmaster';
   sourceUrl?: string;
 };
 
@@ -96,6 +112,9 @@ export type Ticket = {
   confirmationCode?: string;
   ticketUrl?: string;
   purchaseUrl?: string;
+  kind?: 'ticket' | 'reservation';
+  note?: string;
+  attachmentUri?: string;
   date?: string;
   createdAt: number;
 };
@@ -117,6 +136,19 @@ export type Trip = {
   dayStartMin?: number; // hora habitual de comienzo del día
   partySize?: number; // cantidad de personas
   groupType?: GroupType;
+  arrivalTime?: number; // hora de llegada al destino (min, día 1)
+  departureTime?: number; // hora de salida del destino (min, último día)
+  arrivalPlace?: string; // aeropuerto/estación/etc.
+  departurePlace?: string;
+  arrivalType?: TravelPointType;
+  departureType?: TravelPointType;
+  arrivalBufferMin?: number;
+  arrivalTransferMin?: number;
+  departureLeadMin?: number;
+  departureTransferMin?: number;
+  checkInTime?: number;
+  checkOutTime?: number;
+  canLeaveLuggage?: boolean;
   tickets: Ticket[];
   packingItems: PackingItem[];
   days: Day[];
@@ -139,6 +171,19 @@ export type Draft = {
   dayStartMin?: number;
   partySize?: number;
   groupType?: GroupType;
+  arrivalTime?: number;
+  departureTime?: number;
+  arrivalPlace?: string;
+  departurePlace?: string;
+  arrivalType?: TravelPointType;
+  departureType?: TravelPointType;
+  arrivalBufferMin?: number;
+  arrivalTransferMin?: number;
+  departureLeadMin?: number;
+  departureTransferMin?: number;
+  checkInTime?: number;
+  checkOutTime?: number;
+  canLeaveLuggage?: boolean;
 };
 
 export type User = {
@@ -146,4 +191,25 @@ export type User = {
   email: string;
   name: string;
   plan: 'gratis' | 'premium';
+  photoUri?: string;
+};
+
+export type NotificationPreferences = {
+  enabled: boolean;
+  tripReminders: boolean;
+  weekBefore: boolean;
+  dayBefore: boolean;
+  tripStart: boolean;
+  dailySummary: boolean;
+  firstActivity: boolean;
+  upcomingActivity: boolean;
+  activityLeadMin: 15 | 30 | 60;
+  tickets: boolean;
+};
+
+export type AppPreferences = {
+  language: 'es' | 'en' | 'pt';
+  currency: 'auto' | 'EUR' | 'USD' | 'ARS' | 'JPY';
+  travelStyle: Pace;
+  notifications: NotificationPreferences;
 };

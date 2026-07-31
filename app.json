@@ -32,6 +32,17 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
+      ],
+      "expo-sharing",
+      "expo-notifications",
+      "expo-calendar",
+      "expo-document-picker",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Rumbo necesita acceso a tus fotos para que elijas una imagen de perfil.",
+          "microphonePermission": false
+        }
       ]
     ],
     "experiments": {

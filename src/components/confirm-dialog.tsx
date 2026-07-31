@@ -68,7 +68,7 @@ export function ConfirmDialog({
 }
 
 const styles = StyleSheet.create({
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
+  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.45)' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.four },
   card: {
     width: '100%',
