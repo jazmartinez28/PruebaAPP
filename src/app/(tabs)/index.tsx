@@ -15,8 +15,9 @@ import {
 import { CityImage } from '@/components/city-image';
 import { BrandMark } from '@/components/brand-mark';
 import { JourneyRoute } from '@/components/journey-route';
-import { Body, Button, Card, H1, H2, Label, Screen } from '@/components/ui';
+import { Body, Button, H1, H2, Label, Screen } from '@/components/ui';
 import { Radius, Spacing } from '@/constants/theme';
+import { CATEGORY_LABEL } from '@/data/catalog';
 import { CITIES, cityById, type City } from '@/data/cities';
 import { useTheme } from '@/hooks/use-theme';
 import { daysUntil, fmtRange } from '@/lib/dates';
@@ -38,6 +39,7 @@ export default function HomeScreen() {
   const { width } = useWindowDimensions();
   const trips = useStore((s) => s.trips);
   const user = useStore((s) => s.user);
+  const draft = useStore((s) => s.draft);
   const setDraft = useStore((s) => s.setDraft);
   const loadCityCatalog = useStore((s) => s.loadCityCatalog);
   const [mood, setMood] = useState<(typeof MOODS)[number]['id']>('iconos');
@@ -70,12 +72,14 @@ export default function HomeScreen() {
 
   const startWithCity = async (city: City) => {
     await Haptics.selectionAsync();
+    const changedCity = Boolean(draft.cityId && draft.cityId !== city.id);
     setDraft({
       cityId: city.id,
       cityName: city.name,
       country: city.country,
       interests: [...selectedMood.interests],
       pace: selectedMood.pace,
+      ...(changedCity ? { accommodation: null, accommodationChoice: undefined, mustSeeIds: [] } : {}),
     });
     void loadCityCatalog(city.id);
     router.push('/crear');
@@ -153,65 +157,62 @@ export default function HomeScreen() {
           />
         )}
 
-        <SectionHeader
-          title={next ? 'Elegí tu próxima historia' : '¿Qué tipo de viaje necesitás?'}
-          action="Ver todos"
-          onAction={() => router.push('/crear')}
-        />
+        <View style={[styles.inspirationStudio, { backgroundColor: t.backgroundElement }]}>
+          <View style={styles.inspirationHeading}>
+            <View style={{ flex: 1 }}>
+              <Label style={{ color: t.primary }}>ESTUDIO DE ESCAPADAS</Label>
+              <H2>¿Cómo querés sentir tu próximo viaje?</H2>
+              <Body muted style={{ marginTop: 3, fontSize: 13 }}>Elegí una intención y te mostramos ciudades que encajan con ella.</Body>
+            </View>
+            <View style={[styles.inspirationSpark, { backgroundColor: t.primarySoft }]}>
+              <Ionicons name="sparkles" size={22} color={t.primary} />
+            </View>
+          </View>
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.moodRail}
-          accessibilityRole="tablist">
-          {MOODS.map((item) => {
-            const selected = item.id === mood;
-            return (
-              <Pressable
-                key={item.id}
-                accessibilityRole="tab"
-                accessibilityState={{ selected }}
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  setMood(item.id);
-                }}
-                style={({ pressed }) => [
-                  styles.mood,
-                  {
-                    backgroundColor: selected ? t.text : t.surface,
-                    borderColor: selected ? t.text : t.border,
-                  },
-                  pressed && styles.pressed,
-                ]}>
-                <Ionicons
-                  name={item.icon}
-                  size={18}
-                  color={selected ? t.background : t.textSecondary}
-                />
-                <Body style={{ color: selected ? t.background : t.text, fontWeight: '700' }}>
-                  {item.label}
-                </Body>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.moodRail} accessibilityRole="tablist">
+            {MOODS.map((item) => {
+              const selected = item.id === mood;
+              return (
+                <Pressable
+                  key={item.id}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected }}
+                  onPress={() => { void Haptics.selectionAsync(); setMood(item.id); }}
+                  style={({ pressed }) => [
+                    styles.mood,
+                    { backgroundColor: selected ? t.text : t.surface, borderColor: selected ? t.text : t.border },
+                    pressed && styles.pressed,
+                  ]}>
+                  <Ionicons name={item.icon} size={18} color={selected ? t.background : t.textSecondary} />
+                  <Body style={{ color: selected ? t.background : t.text, fontWeight: '800' }}>{item.label}</Body>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
 
-        <ScrollView
-          horizontal
-          snapToInterval={cardWidth + 12}
-          decelerationRate="fast"
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.destinationRail}>
-          {inspiration.map((city, index) => (
-            <DestinationCard
-              key={`${mood}-${city.id}`}
-              city={city}
-              width={cardWidth}
-              index={index}
-              onPress={() => startWithCity(city)}
-            />
-          ))}
-        </ScrollView>
+          <ScrollView
+            horizontal
+            snapToInterval={cardWidth + 12}
+            decelerationRate="fast"
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.destinationRailStudio}>
+            {inspiration.map((city, index) => (
+              <DestinationCard key={`${mood}-${city.id}`} city={city} width={cardWidth} index={index} onPress={() => startWithCity(city)} />
+            ))}
+          </ScrollView>
+
+          <View style={[styles.moodResult, { backgroundColor: t.surface }]}>
+            <View style={[styles.moodResultIcon, { backgroundColor: t.secondarySoft }]}>
+              <Ionicons name="options-outline" size={19} color={t.secondary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Label>ASÍ SE PERSONALIZA</Label>
+              <Body numberOfLines={2} style={{ fontSize: 12, fontWeight: '700' }}>
+                Priorizaremos {selectedMood.interests.slice(0, 3).map((interest) => CATEGORY_LABEL[interest]).join(', ').toLocaleLowerCase()} y un ritmo {selectedMood.pace}.
+              </Body>
+            </View>
+          </View>
+        </View>
 
         <ContextualActions
           trip={next}
@@ -222,17 +223,6 @@ export default function HomeScreen() {
           onPacking={() => next && openTripTool('valija')}
         />
 
-        {!next && <LivePlanPreview />}
-
-        <View style={[styles.promise, { backgroundColor: t.secondarySoft }]}>
-          <Ionicons name="shield-checkmark-outline" size={22} color={t.secondary} />
-          <View style={{ flex: 1 }}>
-            <Body style={{ fontWeight: '800' }}>Un plan completo, no una lista de lugares</Body>
-            <Body muted style={{ fontSize: 13, marginTop: 2 }}>
-              Organizamos zonas, horarios, traslados y pausas para que el viaje funcione de verdad.
-            </Body>
-          </View>
-        </View>
       </Animated.View>
     </Screen>
   );
@@ -406,24 +396,22 @@ function ContextualActions({
   onPacking: () => void;
 }) {
   const t = useTheme();
+  const draft = useStore((state) => state.draft);
   if (!trip) {
+    if (!draft.cityId) return null;
+    const checks = [Boolean(draft.cityId), Boolean(draft.startDate && draft.endDate), Boolean(draft.accommodationChoice), draft.interests.length > 0, Boolean(draft.partySize && draft.groupType)];
+    const completion = Math.round((checks.filter(Boolean).length / checks.length) * 100);
     return (
       <View style={styles.contextSection}>
-        <View><H2>Organizá tu próximo viaje en minutos</H2><Body muted style={{ marginTop: 4 }}>Elegí el destino y nosotros ordenamos cada día por vos.</Body></View>
-        <Card style={styles.startCard}>
-          {[
-            ['location-outline', 'Elegí destino y fechas'],
-            ['options-outline', 'Contanos tu ritmo e intereses'],
-            ['map-outline', 'Recibí un plan por zonas y horarios'],
-          ].map(([icon, label], index) => (
-            <View key={label} style={styles.startStep}>
-              <View style={[styles.startNumber, { backgroundColor: index === 2 ? t.secondarySoft : t.primarySoft }]}><Body style={{ color: index === 2 ? t.secondary : t.primary, fontWeight: '900' }}>{index + 1}</Body></View>
-              <Ionicons name={icon as any} size={19} color={t.textSecondary} />
-              <Body style={{ flex: 1, fontWeight: '800' }}>{label}</Body>
-            </View>
-          ))}
-          <Button title="Crear mi primer viaje" icon="sparkles-outline" onPress={onCreate} />
-        </Card>
+        <View style={[styles.draftResume, { backgroundColor: t.text }]}>
+          <View style={styles.resumeTop}>
+            <View style={{ flex: 1 }}><Label style={{ color: t.secondarySoft }}>BORRADOR GUARDADO</Label><H2 style={{ color: '#fff' }}>{draft.cityName ?? 'Tu próximo viaje'} te espera</H2></View>
+            <View style={[styles.resumePercent, { borderColor: t.secondary }]}><Body style={{ color: '#fff', fontWeight: '900' }}>{completion}%</Body></View>
+          </View>
+          <View style={styles.resumeTrack}><View style={[styles.resumeFill, { width: `${completion}%`, backgroundColor: t.secondary }]} /></View>
+          <Body style={{ color: 'rgba(255,255,255,0.72)', fontSize: 12 }}>{checks.filter(Boolean).length} de {checks.length} decisiones completadas. Retomás exactamente donde lo dejaste.</Body>
+          <Button title="Continuar planificación" icon="arrow-forward" variant="secondary" onPress={onCreate} />
+        </View>
       </View>
     );
   }
@@ -437,48 +425,45 @@ function ContextualActions({
     totalPacking === 0 || packed < totalPacking ? { icon: 'bag-check-outline', title: 'Preparar la valija', text: totalPacking ? `${packed} de ${totalPacking} listos` : 'Crear lista inteligente', action: onPacking, tone: t.secondary } : null,
   ].filter(Boolean) as { icon: any; title: string; text: string; action: () => void; tone: string }[];
 
+  const activeTasks = tasks.length ? tasks : [{ icon: 'checkmark-done-outline', title: 'Revisar itinerario', text: `${trip.days.length} días organizados`, action: onPlan, tone: t.secondary }];
+  const resolved = 3 - tasks.length;
+  const readiness = Math.round((Math.max(0, resolved) / 3) * 100);
+  const nextTask = activeTasks[0];
+
   return (
     <View style={styles.contextSection}>
       <View style={styles.contextHeading}>
-        <View style={{ flex: 1 }}><H2>{tasks.length ? 'Completá lo importante' : 'Todo listo para tu próxima aventura'}</H2><Body muted style={{ marginTop: 4 }}>{tasks.length ? 'Acciones concretas para llegar con todo resuelto.' : 'Tu viaje está preparado. Podés revisar el plan cuando quieras.'}</Body></View>
-        <Pressable onPress={onCreate} style={[styles.addTrip, { borderColor: t.border }]}><Ionicons name="add" size={19} color={t.primary} /><Body style={{ color: t.primary, fontWeight: '800', fontSize: 12 }}>Otro viaje</Body></Pressable>
+        <View style={{ flex: 1 }}><Label style={{ color: t.secondary }}>PULSO DEL VIAJE</Label><H2>{tasks.length ? 'Una cosa menos por recordar' : 'Tu viaje está listo para salir'}</H2></View>
+        <Pressable accessibilityRole="button" accessibilityLabel="Crear otro viaje" onPress={onCreate} style={[styles.addTrip, { borderColor: t.border }]}><Ionicons name="add" size={19} color={t.primary} /><Body style={{ color: t.primary, fontWeight: '800', fontSize: 12 }}>Otro</Body></Pressable>
       </View>
-      <Card style={{ padding: 0 }}>
-        {(tasks.length ? tasks : [{ icon: 'checkmark-done-outline', title: 'Revisar itinerario', text: `${trip.days.length} días organizados`, action: onPlan, tone: t.secondary }]).map((task, index, list) => (
-          <Pressable key={task.title} onPress={task.action} style={({ pressed }) => [styles.contextRow, index < list.length - 1 && { borderBottomColor: t.border, borderBottomWidth: 1 }, pressed && styles.pressed]}>
-            <View style={[styles.contextIcon, { backgroundColor: `${task.tone}18` }]}><Ionicons name={task.icon} size={21} color={task.tone} /></View>
-            <View style={{ flex: 1 }}><Body style={{ fontWeight: '900' }}>{task.title}</Body><Body muted style={{ fontSize: 12 }}>{task.text}</Body></View>
-            <Ionicons name="chevron-forward" size={18} color={t.textSecondary} />
-          </Pressable>
-        ))}
-      </Card>
-    </View>
-  );
-}
-
-function SectionHeader({
-  title,
-  action,
-  onAction,
-}: {
-  title: string;
-  action?: string;
-  onAction?: () => void;
-}) {
-  const t = useTheme();
-  return (
-    <View style={styles.sectionHeader}>
-      <H2 style={{ flex: 1 }}>{title}</H2>
-      {action ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={onAction}
-          hitSlop={8}
-          style={({ pressed }) => [styles.textAction, pressed && styles.pressed]}>
-          <Body style={{ color: t.primary, fontWeight: '800', fontSize: 13 }}>{action}</Body>
-          <Ionicons name="chevron-forward" size={15} color={t.primary} />
+      <View style={[styles.readinessBoard, { backgroundColor: t.text }]}>
+        <View style={styles.readinessTop}>
+          <View style={[styles.readinessScore, { borderColor: t.secondary }]}>
+            <Body style={{ color: '#fff', fontSize: 22, fontWeight: '900' }}>{readiness}%</Body>
+            <Body style={{ color: 'rgba(255,255,255,0.65)', fontSize: 9, fontWeight: '800' }}>LISTO</Body>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Label style={{ color: t.secondarySoft }}>SIGUIENTE MEJOR PASO</Label>
+            <Body style={{ color: '#fff', fontSize: 17, fontWeight: '900' }}>{nextTask.title}</Body>
+            <Body style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>{nextTask.text}</Body>
+          </View>
+        </View>
+        <Pressable accessibilityRole="button" onPress={nextTask.action} style={({ pressed }) => [styles.nextTaskAction, { backgroundColor: t.surface }, pressed && styles.pressed]}>
+          <View style={[styles.contextIcon, { backgroundColor: `${nextTask.tone}18` }]}><Ionicons name={nextTask.icon} size={21} color={nextTask.tone} /></View>
+          <Body style={{ flex: 1, fontWeight: '900' }}>{nextTask.title}</Body>
+          <Ionicons name="arrow-forward" size={19} color={t.text} />
         </Pressable>
-      ) : null}
+        {activeTasks.length > 1 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pendingRail}>
+            {activeTasks.slice(1).map((task) => (
+              <Pressable key={task.title} accessibilityRole="button" onPress={task.action} style={[styles.pendingPill, { borderColor: 'rgba(255,255,255,0.22)' }]}>
+                <Ionicons name={task.icon} size={16} color={task.tone} />
+                <Body style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>{task.title}</Body>
+              </Pressable>
+            ))}
+          </ScrollView>
+        )}
+      </View>
     </View>
   );
 }
@@ -574,51 +559,6 @@ function TripCommandCenter({
           </Pressable>
         ))}
       </View>
-    </View>
-  );
-}
-
-function LivePlanPreview() {
-  const t = useTheme();
-  const stops = [
-    { time: '09:30', title: 'Mercado local', meta: '45 min · a 6 min caminando', icon: 'storefront-outline' },
-    { time: '11:00', title: 'Museo imprescindible', meta: 'Reserva recomendada', icon: 'color-palette-outline' },
-    { time: '13:15', title: 'Almuerzo sin apuro', meta: 'Cerca de tu próxima parada', icon: 'restaurant-outline' },
-  ];
-
-  return (
-    <View style={styles.previewSection}>
-      <View>
-        <H2>Así se siente tener el día resuelto</H2>
-        <Body muted style={{ marginTop: 4 }}>
-          Una ruta clara, con aire para disfrutarla.
-        </Body>
-      </View>
-      <Card style={styles.timeline}>
-        <View style={[styles.zonePill, { backgroundColor: t.secondarySoft }]}>
-          <Ionicons name="navigate-outline" size={15} color={t.secondary} />
-          <Body style={{ color: t.secondary, fontWeight: '800', fontSize: 12 }}>Día 1 · Centro histórico</Body>
-        </View>
-        {stops.map((stop, index) => (
-          <View key={stop.time} style={styles.stop}>
-            <View style={styles.timeColumn}>
-              <Body style={{ fontWeight: '800', fontSize: 13 }}>{stop.time}</Body>
-              {index < stops.length - 1 && <View style={[styles.routeLine, { backgroundColor: t.secondary }]} />}
-            </View>
-            <View style={[styles.stopIcon, { backgroundColor: index === 0 ? t.primarySoft : t.secondarySoft }]}>
-              <Ionicons
-                name={stop.icon as any}
-                size={18}
-                color={index === 0 ? t.primary : t.secondary}
-              />
-            </View>
-            <View style={{ flex: 1, paddingBottom: index < stops.length - 1 ? 18 : 0 }}>
-              <Body style={{ fontWeight: '800' }}>{stop.title}</Body>
-              <Body muted style={{ fontSize: 12 }}>{stop.meta}</Body>
-            </View>
-          </View>
-        ))}
-      </Card>
     </View>
   );
 }
@@ -724,7 +664,7 @@ const styles = StyleSheet.create({
   destinationRail: { paddingHorizontal: Spacing.three, gap: 12 },
   destinationPressed: { opacity: 0.9, transform: [{ scale: 0.985 }] },
   destinationCard: {
-    height: 330,
+    height: 270,
     borderRadius: 22,
     padding: 18,
     justifyContent: 'space-between',
@@ -750,7 +690,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.pill,
   },
   planPillText: { color: '#FFFFFF', fontWeight: '800', fontSize: 12 },
-  destinationName: { color: '#FFFFFF', fontWeight: '900', fontSize: 30, lineHeight: 34 },
+  destinationName: { color: '#FFFFFF', fontWeight: '900', fontSize: 27, lineHeight: 31 },
   destinationCountry: { color: '#FFFFFF', opacity: 0.88, fontSize: 14, marginTop: 2 },
   editorialSection: { gap: 12 },
   contextSection: { paddingHorizontal: Spacing.three, gap: 12 },
@@ -871,4 +811,21 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 12,
   },
+  inspirationStudio: { marginHorizontal: Spacing.three, paddingVertical: 18, borderRadius: 24, gap: 14, overflow: 'hidden' },
+  inspirationHeading: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingHorizontal: 18 },
+  inspirationSpark: { width: 46, height: 46, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  destinationRailStudio: { paddingHorizontal: 18, gap: 12 },
+  moodResult: { minHeight: 66, marginHorizontal: 18, flexDirection: 'row', alignItems: 'center', gap: 10, padding: 11, borderRadius: 16 },
+  moodResultIcon: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  draftResume: { gap: 13, padding: 18, borderRadius: 22 },
+  resumeTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  resumePercent: { width: 58, height: 58, borderRadius: 29, borderWidth: 3, alignItems: 'center', justifyContent: 'center' },
+  resumeTrack: { height: 6, borderRadius: Radius.pill, backgroundColor: 'rgba(255,255,255,0.16)', overflow: 'hidden' },
+  resumeFill: { height: 6, borderRadius: Radius.pill },
+  readinessBoard: { gap: 13, padding: 16, borderRadius: 22 },
+  readinessTop: { flexDirection: 'row', alignItems: 'center', gap: 13 },
+  readinessScore: { width: 72, height: 72, borderRadius: 36, borderWidth: 3, alignItems: 'center', justifyContent: 'center' },
+  nextTaskAction: { minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, borderRadius: 16 },
+  pendingRail: { gap: 8 },
+  pendingPill: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 11, borderWidth: 1, borderRadius: Radius.pill },
 });

@@ -34,8 +34,10 @@ export default function GenerandoScreen() {
   const city = draft.cityId ? cityById(draft.cityId) : undefined;
 
   useEffect(() => {
-    if (!draft.cityId || !draft.startDate) {
-      router.replace('/');
+    const accommodationComplete = Boolean(draft.accommodationChoice) &&
+      (draft.accommodationChoice !== 'yes' || Boolean(draft.accommodation));
+    if (!draft.cityId || !draft.startDate || !draft.endDate || !accommodationComplete || !draft.interests.length || !draft.partySize || !draft.groupType) {
+      router.replace('/crear');
       return;
     }
     let cancelled = false;
@@ -58,6 +60,8 @@ export default function GenerandoScreen() {
       const res = createTrip();
       if (res.error === 'limit') {
         router.replace('/paywall');
+      } else if (res.error === 'invalid') {
+        router.replace('/crear');
       } else if (res.id) {
         const id = res.id;
         resetDraft();

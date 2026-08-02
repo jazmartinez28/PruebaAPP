@@ -981,8 +981,8 @@ const TimelineActivity = memo(function TimelineActivity({
         <Ionicons name={activity.mustSee ? 'star' : visual.icon} size={11} color="#fff" />
       </View>
       <View style={{ flex: 1 }}>
-      <Card style={[styles.activityCard, { borderLeftColor: color }]}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
+      <Card style={styles.activityCard}>
+        <View style={styles.activityMedia}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`${p.name}, ${minToHHMM(activity.startMin)}`}
@@ -990,9 +990,25 @@ const TimelineActivity = memo(function TimelineActivity({
             onPress={onPress}
             delayLongPress={350}
             onLongPress={() => { void Haptics.selectionAsync(); onMoveDay(); }}
-            style={styles.activityOpenArea}>
-            <PlaceImage place={p} compact style={styles.activityThumb} />
-            <Body style={{ fontWeight: '700', flex: 1 }}>{p.name}</Body>
+            style={({ pressed }) => [styles.activityOpenArea, pressed && { opacity: 0.88 }]}>
+            <PlaceImage place={p} style={styles.activityHeroImage} />
+            <View style={styles.activityImageScrim} />
+            <View style={styles.activityMediaCopy}>
+              <View style={styles.activityMediaBadges}>
+                <View style={[styles.categoryBadgeOnImage, { backgroundColor: color }]}>
+                  <Ionicons name={visual.icon} size={13} color="#fff" />
+                  <Body style={{ color: '#fff', fontSize: 10, fontWeight: '900' }}>{visual.label}</Body>
+                </View>
+                {activity.mustSee && (
+                  <View style={styles.mustSeeOnImage}>
+                    <Ionicons name="star" size={12} color="#fff" />
+                    <Body style={{ color: '#fff', fontSize: 10, fontWeight: '900' }}>Imprescindible</Body>
+                  </View>
+                )}
+              </View>
+              <Body numberOfLines={2} style={styles.activityTitleOnImage}>{p.name}</Body>
+              <Body style={styles.activitySubtitleOnImage}>{p.zone} · {activity.durationMin} min</Body>
+            </View>
           </Pressable>
           <View style={styles.reorderActions}>
             <Pressable
@@ -1013,29 +1029,30 @@ const TimelineActivity = memo(function TimelineActivity({
             </Pressable>
           </View>
         </View>
-        <View style={styles.activityMeta}>
-          <View style={[styles.categoryBadge, { backgroundColor: visual.soft }]}>
-            <Ionicons name={visual.icon} size={14} color={visual.color} />
-            <Body style={{ color: visual.color, fontSize: 11, fontWeight: '900' }}>{visual.label}</Body>
+        <View style={styles.activityBody}>
+          <View style={styles.activityMeta}>
+            <View style={[styles.categoryBadge, { backgroundColor: visual.soft }]}>
+              <Ionicons name="time-outline" size={14} color={visual.color} />
+              <Body style={{ color: visual.color, fontSize: 11, fontWeight: '900' }}>{minToHHMM(activity.startMin)}–{minToHHMM(activity.startMin + activity.durationMin)}</Body>
+            </View>
+            <Body muted style={{ fontSize: 12 }}>{PRICE_LABEL(p.price)} · ★ {p.rating > 0 ? p.rating.toFixed(1) : 'Nuevo'}</Body>
           </View>
-          <Body muted style={{ fontSize: 12 }}>{activity.durationMin} min · {PRICE_LABEL(p.price)}</Body>
-        </View>
-        <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
-          {(() => {
-            const ti = ticketInfo(p);
-            if (ti.status === 'none' || ti.status === 'free') return null;
-            const color = ti.status === 'required' ? t.error : ti.reservation ? t.warning : t.primary;
-            return <Tag color={color} text={ti.label} />;
-          })()}
-          {activity.note && <Tag color={t.warning} text="Verificar horario" />}
-          {activity.mustSee && <Tag color={t.primary} text="Imprescindible" />}
-          {ticketCount > 0 && <Tag color={t.secondary} text={`${ticketCount} ticket${ticketCount > 1 ? 's' : ''}`} />}
-          <Tag color={activity.status === 'hecho' ? t.secondary : activity.status === 'saltado' ? t.error : t.textSecondary} text={statusLabel} />
-        </View>
-        <View style={[styles.quickActions, { borderTopColor: t.border }]}>
-          <QuickActivityAction icon="create-outline" label="Editar" onPress={onEdit} />
-          <QuickActivityAction icon="swap-horizontal-outline" label="Mover" onPress={onMoveDay} />
-          <QuickActivityAction icon="options-outline" label="Más opciones" onPress={onPress} />
+          <View style={styles.activityTags}>
+            {(() => {
+              const ti = ticketInfo(p);
+              if (ti.status === 'none' || ti.status === 'free') return null;
+              const ticketColor = ti.status === 'required' ? t.error : ti.reservation ? t.warning : t.primary;
+              return <Tag color={ticketColor} text={ti.label} />;
+            })()}
+            {activity.note && <Tag color={t.warning} text="Verificar horario" />}
+            {ticketCount > 0 && <Tag color={t.secondary} text={`${ticketCount} ticket${ticketCount > 1 ? 's' : ''}`} />}
+            <Tag color={activity.status === 'hecho' ? t.secondary : activity.status === 'saltado' ? t.error : t.textSecondary} text={statusLabel} />
+          </View>
+          <View style={[styles.quickActions, { borderTopColor: t.border }]}>
+            <QuickActivityAction icon="create-outline" label="Editar" onPress={onEdit} />
+            <QuickActivityAction icon="swap-horizontal-outline" label="Mover" onPress={onMoveDay} />
+            <QuickActivityAction icon="options-outline" label="Más opciones" onPress={onPress} />
+          </View>
         </View>
       </Card>
       </View>
@@ -1415,6 +1432,13 @@ function ActivityDetailSheet({
   const visual = categoryVisualFor(p);
   const purchaseUrl = purchaseUrlFor(p);
   const ti = ticketInfo(p);
+  const sourceLabel = p.source === 'openstreetmap'
+    ? 'OpenStreetMap'
+    : p.source === 'ticketmaster'
+      ? 'Ticketmaster'
+      : p.source === 'foursquare'
+        ? 'Foursquare Places'
+        : 'selección curada';
   const openMaps = () => {
     const url = Platform.select({
       default: `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`,
@@ -1504,7 +1528,7 @@ function ActivityDetailSheet({
       </View>
 
       <Body muted style={{ fontSize: 11, marginTop: Spacing.three, textAlign: 'center' }}>
-        Fuente: {p.source === 'openstreetmap' ? 'OpenStreetMap' : p.source === 'ticketmaster' ? 'Ticketmaster' : 'selección curada'} · Verificá horarios y precios en el sitio oficial
+        Fuente: {sourceLabel} · Verificá horarios y precios en el sitio oficial
       </Body>
     </Sheet>
   );
@@ -1953,16 +1977,27 @@ const styles = StyleSheet.create({
   hotelTimeline: { flex: 1, minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: Radius.md, paddingHorizontal: Spacing.three },
   boundaryTimeline: { flex: 1, minHeight: 66, flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: Radius.md, borderWidth: 1, paddingHorizontal: Spacing.three },
   activityMeta: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-  activityCard: { gap: 7, borderLeftWidth: 4, paddingLeft: 12 },
-  activityOpenArea: { flex: 1, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 9 },
+  activityCard: { padding: 0, gap: 0, overflow: 'hidden' },
+  activityMedia: { position: 'relative', minHeight: 176 },
+  activityOpenArea: { width: '100%', minHeight: 176 },
+  activityHeroImage: { width: '100%', height: 176 },
+  activityImageScrim: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: 'rgba(13,20,28,0.34)' },
+  activityMediaCopy: { position: 'absolute', left: 14, right: 58, bottom: 13, gap: 3 },
+  activityMediaBadges: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 4 },
+  categoryBadgeOnImage: { minHeight: 27, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, borderRadius: Radius.pill },
+  mustSeeOnImage: { minHeight: 27, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, borderRadius: Radius.pill, backgroundColor: 'rgba(0,0,0,0.38)' },
+  activityTitleOnImage: { color: '#fff', fontSize: 21, lineHeight: 24, fontWeight: '900', textShadowColor: 'rgba(0,0,0,0.35)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 5 },
+  activitySubtitleOnImage: { color: 'rgba(255,255,255,0.84)', fontSize: 11, fontWeight: '700' },
+  activityBody: { gap: 8, paddingHorizontal: 12, paddingTop: 11 },
+  activityTags: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
   categoryBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 5, borderRadius: Radius.pill },
   quickActions: { flexDirection: 'row', borderTopWidth: 1, marginTop: 7, paddingTop: 8 },
   quickAction: { flex: 1, minHeight: 42, alignItems: 'center', justifyContent: 'center', gap: 2 },
   legRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
   legLine: { width: 2, height: 22 },
   legPill: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 7, borderRadius: Radius.pill },
-  reorderActions: { flexDirection: 'column', gap: 4, paddingTop: 2 },
-  reorderButton: { width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  reorderActions: { position: 'absolute', top: 9, right: 9, flexDirection: 'column', gap: 4, padding: 4, borderRadius: 13, backgroundColor: 'rgba(255,255,255,0.94)' },
+  reorderButton: { width: 32, height: 32, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
   mapCard: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   viewSwitch: { flexDirection: 'row', padding: 4, borderRadius: Radius.md, gap: 4 },
   viewSwitchButton: { flex: 1, minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 12 },

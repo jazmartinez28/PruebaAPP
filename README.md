@@ -1,5 +1,15 @@
 # Welcome to your Expo app 👋
 
+## Búsqueda global de lugares
+
+La app incluye una función segura en `api/places/search.ts` que consulta Foursquare Places sin exponer la credencial en el cliente.
+
+1. Creá una Service API Key en Foursquare.
+2. En Vercel, agregá `FOURSQUARE_API_KEY` como variable de entorno del proyecto.
+3. Para probar desde Expo nativo o desde un servidor distinto al backend, configurá `EXPO_PUBLIC_PLACES_API_URL` con la URL base del despliegue (sin `/api/places/search`).
+
+Sin esa clave, el flujo conserva las sugerencias del catálogo local, informa que la búsqueda global no está conectada y permite agregar una dirección o enlace manualmente.
+
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
 
 ## Get started

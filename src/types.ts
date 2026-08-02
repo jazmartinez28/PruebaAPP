@@ -20,6 +20,7 @@ export type Category =
 export type Pace = 'tranquilo' | 'equilibrado' | 'intenso';
 export type Budget = 'economico' | 'moderado' | 'comodo' | 'premium' | 'noindica';
 export type GroupType = 'solo' | 'pareja' | 'amigos' | 'familia' | 'trabajo' | 'otro';
+export type AccommodationChoice = 'yes' | 'no' | 'later';
 export type TravelPointType = 'aeropuerto' | 'estacion' | 'terminal' | 'puerto' | 'direccion' | 'otro';
 export type TicketRequirement =
   | 'none'
@@ -61,7 +62,7 @@ export type Place = {
   eventEndMin?: number;
   availability?: 'onsale' | 'limited' | 'offsale' | 'unknown';
   ticketRequirement?: TicketRequirement;
-  source?: 'curated' | 'openstreetmap' | 'ticketmaster';
+  source?: 'curated' | 'openstreetmap' | 'ticketmaster' | 'foursquare';
   sourceUrl?: string;
 };
 
@@ -164,6 +165,7 @@ export type Draft = {
   startDate?: string;
   endDate?: string;
   accommodation: Accommodation;
+  accommodationChoice?: AccommodationChoice;
   interests: Category[];
   pace: Pace;
   budget: Budget;

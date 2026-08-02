@@ -102,6 +102,16 @@ function addressOf(tags: Record<string, string>): string | undefined {
   return street ? `${street}${number ? ` ${number}` : ''}` : undefined;
 }
 
+function imageOf(tags: Record<string, string>): string | undefined {
+  if (tags.image?.startsWith('https://')) return tags.image;
+  const commons = tags.wikimedia_commons;
+  if (!commons?.toLocaleLowerCase().startsWith('file:')) return undefined;
+  const fileName = commons.slice(5).trim();
+  return fileName
+    ? `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(fileName)}?width=1200`
+    : undefined;
+}
+
 function catalogGroup(place: Place): string {
   if (place.isMeal) return 'gastronomia';
   if (place.categories.includes('museos') || place.categories.includes('arte')) return 'cultura';
@@ -224,6 +234,7 @@ export async function fetchCityPlaces(city: City, limit = 360): Promise<Place[]>
         address: addressOf(tags),
         officialUrl,
         bookingUrl: tags['contact:booking'] || officialUrl,
+        imageUrl: imageOf(tags),
         source: 'openstreetmap',
         sourceUrl: `https://www.openstreetmap.org/${element.type}/${element.id}`,
       };

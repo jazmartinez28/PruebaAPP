@@ -17,6 +17,7 @@ const emptyDraft = (): Draft => ({
   pace: 'equilibrado',
   budget: 'moderado',
   mustSeeIds: [],
+  dayStartMin: 9 * 60,
 });
 
 const defaultPreferences = (): AppPreferences => ({
@@ -74,9 +75,10 @@ type State = {
   loadCityCatalog: (cityId: string) => Promise<{ count: number; error?: string }>;
   loadTripEvents: (cityId: string, startDate: string, endDate: string) => Promise<{ count: number; error?: string }>;
   addManualMustSee: (input: { name: string; address?: string; url?: string }) => void;
+  addSearchedMustSee: (place: Place) => void;
 
   // trips
-  createTripFromDraft: () => { id?: string; error?: 'limit' };
+  createTripFromDraft: () => { id?: string; error?: 'limit' | 'invalid' };
   regenerate: (tripId: string) => void;
   deleteTrip: (tripId: string) => void;
   toggleSaved: (tripId: string, placeId: string) => void;
@@ -330,10 +332,48 @@ export const useStore = create<State>()(
           };
         }),
 
+      addSearchedMustSee: (place) =>
+        set((state) => {
+          if (!state.draft.cityId || place.cityId !== state.draft.cityId) return {};
+          const normalized = place.name.trim().toLocaleLowerCase();
+          const duplicate = state.externalPlaces.find(
+            (candidate) =>
+              candidate.cityId === place.cityId &&
+              (candidate.id === place.id || candidate.name.trim().toLocaleLowerCase() === normalized),
+          );
+          const selected = duplicate ?? place;
+          mergeRuntimePlaces([selected]);
+          return {
+            externalPlaces: duplicate
+              ? state.externalPlaces
+              : [...state.externalPlaces.filter((candidate) => candidate.id !== place.id), place],
+            draft: {
+              ...state.draft,
+              mustSeeIds: state.draft.mustSeeIds.includes(selected.id)
+                ? state.draft.mustSeeIds
+                : [...state.draft.mustSeeIds, selected.id],
+            },
+          };
+        }),
+
       createTripFromDraft: () => {
         const { draft, trips, user } = get();
         const city = cityById(draft.cityId!);
-        if (!city || !draft.startDate || !draft.endDate) return { error: undefined as never };
+        const accommodationComplete =
+          Boolean(draft.accommodationChoice) &&
+          (draft.accommodationChoice !== 'yes' || Boolean(draft.accommodation));
+        const travelerProfileComplete =
+          Boolean(draft.partySize && draft.partySize > 0) &&
+          Boolean(draft.groupType) &&
+          draft.dayStartMin != null;
+        if (
+          !city ||
+          !draft.startDate ||
+          !draft.endDate ||
+          !accommodationComplete ||
+          !draft.interests.length ||
+          !travelerProfileComplete
+        ) return { error: 'invalid' };
         // límite freemium
         const isPremium = user?.plan === 'premium';
         if (
