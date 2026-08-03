@@ -112,6 +112,20 @@ function imageOf(tags: Record<string, string>): string | undefined {
     : undefined;
 }
 
+function popularityOf(tags: Record<string, string>): number {
+  let score = 32;
+  if (tags.wikipedia) score += 25;
+  if (tags.wikidata) score += 18;
+  if (tags.wikimedia_commons || tags.image) score += 8;
+  if (tags.website || tags['contact:website']) score += 6;
+  if (tags.heritage || tags['heritage:operator'] || tags['ref:whc']) score += 15;
+  if (tags.tourism === 'attraction' || tags.tourism === 'museum') score += 12;
+  if (tags.historic === 'monument' || tags.historic === 'castle' || tags.historic === 'memorial') score += 10;
+  if (tags.leisure === 'stadium' || tags.man_made === 'tower') score += 8;
+  if (tags.opening_hours) score += 3;
+  return Math.min(100, score);
+}
+
 function catalogGroup(place: Place): string {
   if (place.isMeal) return 'gastronomia';
   if (place.categories.includes('museos') || place.categories.includes('arte')) return 'cultura';
@@ -226,6 +240,7 @@ export async function fetchCityPlaces(city: City, limit = 360): Promise<Place[]>
         durationMin: durationOf(tags),
         price: priceOf(tags),
         rating: tags.wikipedia || tags.wikidata ? 4.4 : 4.1,
+        popularityScore: popularityOf(tags),
         desc: tags.description || `${categories.includes('gastronomia') ? 'Propuesta gastronómica' : 'Lugar de interés'} en ${zone}.`,
         reason: 'Sumado desde la comunidad de OpenStreetMap por afinidad y cercanía.',
         needsBooking: tags.reservation === 'required' || tags.booking === 'yes',
@@ -240,9 +255,11 @@ export async function fetchCityPlaces(city: City, limit = 360): Promise<Place[]>
       };
     })
     .filter((place): place is Place => Boolean(place))
-    .sort((a, b) => Number(Boolean(b.officialUrl)) - Number(Boolean(a.officialUrl)) || b.rating - a.rating);
+    .sort((a, b) => (b.popularityScore ?? 0) - (a.popularityScore ?? 0) || b.rating - a.rating);
 
-  return diversify(places, limit);
+  const anchors = places.slice(0, Math.min(72, Math.ceil(limit * 0.2)));
+  const anchorIds = new Set(anchors.map((place) => place.id));
+  return [...anchors, ...diversify(places.filter((place) => !anchorIds.has(place.id)), limit - anchors.length)];
 }
 
 export type GeocodedAccommodation = {

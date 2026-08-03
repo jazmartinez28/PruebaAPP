@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { AudioModule, RecordingPresets, setAudioModeAsync, useAudioRecorder, useAudioRecorderState } from 'expo-audio';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
@@ -92,10 +93,13 @@ export default function CrearScreen() {
   const [remotePlaces, setRemotePlaces] = useState<Place[]>([]);
   const [placeSearchState, setPlaceSearchState] = useState<'idle' | 'loading' | 'ready' | 'empty' | 'error' | 'unconfigured'>('idle');
   const [placeSearchMessage, setPlaceSearchMessage] = useState('');
+  const [audioError, setAudioError] = useState<string | null>(null);
   const [reducedMotion, setReducedMotion] = useState(false);
   const direction = useRef(1);
   const stepMotion = useRef(new Animated.Value(1)).current;
   const scrollRef = useRef<ScrollView>(null);
+  const audioRecorder = useAudioRecorder({ ...RecordingPresets.LOW_QUALITY, directory: 'document' });
+  const recorderState = useAudioRecorderState(audioRecorder, 250);
 
   const cityPlaces = draft.cityId ? placesByCity(draft.cityId) : [];
   const zones = Array.from(new Set(cityPlaces.map((place) => place.zone)));
@@ -118,6 +122,36 @@ export default function CrearScreen() {
   useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled().then(setReducedMotion);
   }, []);
+
+  useEffect(() => {
+    if (!recorderState.isRecording && audioRecorder.uri && draft.travelIntentAudioUri !== audioRecorder.uri) {
+      setDraft({ travelIntentAudioUri: audioRecorder.uri });
+    }
+  }, [audioRecorder.uri, draft.travelIntentAudioUri, recorderState.isRecording, setDraft]);
+
+  const toggleVoiceNote = async () => {
+    setAudioError(null);
+    try {
+      if (recorderState.isRecording) {
+        await audioRecorder.stop();
+        if (audioRecorder.uri) setDraft({ travelIntentAudioUri: audioRecorder.uri });
+        await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        return;
+      }
+      const permission = await AudioModule.requestRecordingPermissionsAsync();
+      if (!permission.granted) {
+        setAudioError('Necesitamos permiso para usar el micrófono. También podés escribir tus preferencias.');
+        return;
+      }
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record({ forDuration: 60 });
+      void Haptics.selectionAsync();
+    } catch {
+      setAudioError('No pudimos grabar ahora. Tus preferencias escritas siguen guardadas.');
+    }
+  };
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ y: 0, animated: !reducedMotion });
@@ -719,6 +753,56 @@ export default function CrearScreen() {
         {step === 6 && (
           <>
             <StepIntro icon="star-outline" title="¿Qué no te querés perder?" description="Buscá y marcá tus imprescindibles. Permanecerán protegidos al reorganizar el viaje." optional />
+            <View style={[styles.intentComposer, { backgroundColor: t.surface, borderColor: t.border }]}>
+              <View style={styles.intentHeading}>
+                <View style={[styles.intentIcon, { backgroundColor: t.primarySoft }]}>
+                  <Ionicons name="chatbubble-ellipses-outline" size={21} color={t.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Body style={{ fontWeight: '900' }}>Contale algo a Rumbo</Body>
+                  <Body muted style={{ fontSize: 12 }}>El plan leerá este texto antes de elegir las actividades.</Body>
+                </View>
+              </View>
+              <TextInput
+                accessibilityLabel="Preferencias libres para el itinerario"
+                value={draft.travelIntentText ?? ''}
+                onChangeText={(travelIntentText) => setDraft({ travelIntentText })}
+                placeholder="Ej.: quiero cruzar el Puente de Brooklyn al atardecer, probar pizza y evitar museos largos."
+                placeholderTextColor={t.textSecondary}
+                multiline
+                maxLength={600}
+                textAlignVertical="top"
+                style={[styles.intentInput, { color: t.text, backgroundColor: t.background, borderColor: t.border }]}
+              />
+              <View style={styles.voiceRow}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={recorderState.isRecording ? 'Detener nota de voz' : 'Grabar nota de voz'}
+                  onPress={toggleVoiceNote}
+                  style={({ pressed }) => [
+                    styles.voiceButton,
+                    { backgroundColor: recorderState.isRecording ? t.error : t.text },
+                    pressed && { opacity: 0.78 },
+                  ]}>
+                  <Ionicons name={recorderState.isRecording ? 'stop' : 'mic'} size={18} color="#fff" />
+                  <Body style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>
+                    {recorderState.isRecording ? `Detener · ${Math.round(recorderState.durationMillis / 1000)} s` : 'Grabar audio'}
+                  </Body>
+                </Pressable>
+                {draft.travelIntentAudioUri ? (
+                  <View style={[styles.voiceSaved, { backgroundColor: t.secondarySoft }]}>
+                    <Ionicons name="checkmark-circle" size={18} color={t.secondary} />
+                    <Body style={{ color: t.secondary, fontSize: 11, fontWeight: '800' }}>Audio guardado</Body>
+                    <Pressable accessibilityLabel="Eliminar nota de voz" hitSlop={8} onPress={() => setDraft({ travelIntentAudioUri: undefined })}>
+                      <Ionicons name="close" size={17} color={t.secondary} />
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Body muted style={{ flex: 1, fontSize: 11 }}>Hasta 60 segundos · queda en tu dispositivo</Body>
+                )}
+              </View>
+              {audioError && <Body style={{ color: t.error, fontSize: 11 }}>{audioError}</Body>}
+            </View>
             <View style={[styles.search, { backgroundColor: t.surface, borderColor: t.border }]}>
               <Ionicons name="search" size={19} color={t.textSecondary} />
               <TextInput
@@ -1139,6 +1223,9 @@ function ReviewStep({ onEdit }: { onEdit: (step: number) => void }) {
     { step: 4, icon: 'people-outline', label: 'Viajeros', value: `${draft.partySize ?? 1} · ${draft.groupType ?? 'grupo'} · desde ${formatTime(draft.dayStartMin ?? 9 * 60)}` },
     { step: 5, icon: 'wallet-outline', label: 'Presupuesto', value: `${budget} · por persona y por día` },
     { step: 6, icon: 'star-outline', label: 'Imprescindibles', value: draft.mustSeeIds.length ? `${draft.mustSeeIds.length} protegidos en el plan` : 'Sin lugares obligatorios' },
+    ...(draft.travelIntentText || draft.travelIntentAudioUri
+      ? [{ step: 6, icon: 'chatbubble-ellipses-outline' as const, label: 'Tu pedido', value: draft.travelIntentText?.trim() || 'Nota de voz guardada en el viaje' }]
+      : []),
   ];
   return (
     <View style={styles.reviewStage}>
@@ -1377,5 +1464,12 @@ const styles = StyleSheet.create({
   reviewGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
   reviewTile: { width: '48%', flexGrow: 1, minHeight: 112, flexDirection: 'row', alignItems: 'flex-start', gap: 9, padding: 12, borderWidth: 1, borderRadius: Radius.md },
   reviewTileIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  intentComposer: { borderWidth: 1, borderRadius: Radius.lg, padding: 14, gap: 11 },
+  intentHeading: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  intentIcon: { width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  intentInput: { minHeight: 104, borderWidth: 1, borderRadius: Radius.md, paddingHorizontal: 12, paddingVertical: 11, fontSize: 14, lineHeight: 20 },
+  voiceRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  voiceButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 13, borderRadius: Radius.pill },
+  voiceSaved: { minHeight: 40, flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, borderRadius: Radius.pill },
   creationPromise: { minHeight: 80, flexDirection: 'row', alignItems: 'flex-start', gap: 11, padding: 14, borderRadius: Radius.md },
 });

@@ -1,16 +1,11 @@
-import React from 'react';
-import { StyleSheet, View } from 'react-native';
-import Svg, { Circle, Line, Text as SvgText } from 'react-native-svg';
+import { useEffect, useMemo, useRef } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 
 import { Radius } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
 
 export type MapStop = { id: string; lat: number; lng: number; name: string; index: number; color: string };
 
-/**
- * Mapa esquemático para nativo (iOS/Android en Expo Go).
- * En la build nativa final se reemplaza por react-native-maps; en web se usa Leaflet (route-map.web.tsx).
- */
 export function RouteMap({
   stops,
   accommodation,
@@ -24,56 +19,80 @@ export function RouteMap({
   onSelect?: (id: string) => void;
   height?: number;
 }) {
-  const t = useTheme();
-  const W = 320;
-  const H = height;
-  const pad = 30;
+  const mapRef = useRef<MapView>(null);
+  const coordinates = useMemo(() => {
+    const route = stops.map((stop) => ({ latitude: stop.lat, longitude: stop.lng }));
+    return accommodation && route.length
+      ? [{ latitude: accommodation.lat, longitude: accommodation.lng }, ...route, { latitude: accommodation.lat, longitude: accommodation.lng }]
+      : route;
+  }, [accommodation, stops]);
 
-  if (!stops.length && !accommodation) return <View style={[styles.wrap, { height, backgroundColor: t.secondarySoft }]} />;
+  useEffect(() => {
+    if (!coordinates.length) return;
+    const timer = setTimeout(() => {
+      mapRef.current?.fitToCoordinates(coordinates, {
+        animated: true,
+        edgePadding: { top: 54, right: 42, bottom: 88, left: 42 },
+      });
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [coordinates]);
 
-  const lats = [...stops.map((s) => s.lat), ...(accommodation ? [accommodation.lat] : [])];
-  const lngs = [...stops.map((s) => s.lng), ...(accommodation ? [accommodation.lng] : [])];
-  const minLat = Math.min(...lats);
-  const maxLat = Math.max(...lats);
-  const minLng = Math.min(...lngs);
-  const maxLng = Math.max(...lngs);
-  const spanLat = maxLat - minLat || 0.001;
-  const spanLng = maxLng - minLng || 0.001;
+  useEffect(() => {
+    const selected = stops.find((stop) => stop.id === selectedId);
+    if (!selected) return;
+    mapRef.current?.animateCamera({ center: { latitude: selected.lat, longitude: selected.lng }, zoom: 15 }, { duration: 340 });
+  }, [selectedId, stops]);
 
-  const px = (s: { lng: number }) => pad + ((s.lng - minLng) / spanLng) * (W - pad * 2);
-  const py = (s: { lat: number }) => pad + ((maxLat - s.lat) / spanLat) * (H - pad * 2);
-  const routeStops = accommodation
-    ? [{ ...accommodation, id: 'hotel-start', index: 0, color: '#344054' }, ...stops, { ...accommodation, id: 'hotel-end', index: 0, color: '#344054' }]
-    : stops;
-
+  const center = coordinates[0] ?? { latitude: 0, longitude: 0 };
   return (
-    <View style={[styles.wrap, { height, backgroundColor: t.secondarySoft }]}>
-      <Svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`}>
-        {routeStops.slice(0, -1).map((s, i) => (
-          <Line key={`l${i}`} x1={px(s)} y1={py(s)} x2={px(routeStops[i + 1])} y2={py(routeStops[i + 1])} stroke={t.secondary} strokeWidth={2} strokeDasharray="2 6" opacity={0.6} />
-        ))}
-        {accommodation && (
+    <View style={[styles.wrap, { height }]}>
+      <MapView
+        ref={mapRef}
+        style={StyleSheet.absoluteFill}
+        initialRegion={{ ...center, latitudeDelta: 0.08, longitudeDelta: 0.08 }}
+        rotateEnabled={false}
+        pitchEnabled={false}
+        toolbarEnabled={false}
+        showsCompass={false}
+        showsPointsOfInterests
+        accessibilityLabel="Mapa del recorrido del día">
+        {coordinates.length > 1 && (
           <>
-            <Circle cx={px(accommodation)} cy={py(accommodation)} r={14} fill="#344054" stroke="#fff" strokeWidth={2} />
-            <SvgText x={px(accommodation)} y={py(accommodation) + 4} fontSize={10} fontWeight="800" fill="#fff" textAnchor="middle">H</SvgText>
+            <Polyline coordinates={coordinates} strokeColor="rgba(255,255,255,0.95)" strokeWidth={8} />
+            <Polyline coordinates={coordinates} strokeColor="#16A085" strokeWidth={4} lineCap="round" lineJoin="round" />
           </>
         )}
-        {stops.map((s) => {
-          const sel = s.id === selectedId;
+        {accommodation && (
+          <Marker coordinate={{ latitude: accommodation.lat, longitude: accommodation.lng }} title={accommodation.name}>
+            <View style={styles.hotelMarker}><Text style={styles.hotelMarkerText}>H</Text></View>
+          </Marker>
+        )}
+        {stops.map((stop) => {
+          const selected = stop.id === selectedId;
           return (
-            <React.Fragment key={s.id}>
-              <Circle cx={px(s)} cy={py(s)} r={sel ? 15 : 12} fill={s.color} stroke="#fff" strokeWidth={2} onPress={() => onSelect?.(s.id)} />
-              <SvgText x={px(s)} y={py(s) + 4} fontSize={11} fontWeight="700" fill="#fff" textAnchor="middle">
-                {s.index}
-              </SvgText>
-            </React.Fragment>
+            <Marker
+              key={stop.id}
+              coordinate={{ latitude: stop.lat, longitude: stop.lng }}
+              title={stop.name}
+              onPress={() => onSelect?.(stop.id)}
+              tracksViewChanges={selected}>
+              <View style={[styles.marker, { backgroundColor: stop.color }, selected && styles.markerSelected]}>
+                <Text style={styles.markerText}>{stop.index}</Text>
+              </View>
+            </Marker>
           );
         })}
-      </Svg>
+      </MapView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { borderRadius: Radius.md, overflow: 'hidden' },
+  wrap: { borderRadius: Radius.md, overflow: 'hidden', backgroundColor: '#DDEBE8' },
+  marker: { width: 32, height: 32, borderRadius: 16, borderWidth: 3, borderColor: '#fff', alignItems: 'center', justifyContent: 'center', shadowColor: '#101828', shadowOpacity: 0.22, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 4 },
+  markerSelected: { width: 40, height: 40, borderRadius: 20, borderWidth: 4 },
+  markerText: { color: '#fff', fontSize: 12, fontWeight: '900' },
+  hotelMarker: { width: 36, height: 36, borderRadius: 12, backgroundColor: '#1D2733', borderWidth: 3, borderColor: '#fff', alignItems: 'center', justifyContent: 'center', shadowColor: '#101828', shadowOpacity: 0.24, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 5 },
+  hotelMarkerText: { color: '#fff', fontSize: 13, fontWeight: '900' },
 });

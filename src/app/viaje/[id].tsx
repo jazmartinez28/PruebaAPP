@@ -582,11 +582,6 @@ function ItinerarioTab({
             index={day}
             accommodation={trip.accommodation}
             onEditStart={() => onEditDayStart(day)}
-            onMap={onMap}
-            onNext={() => {
-              const next = d.activities.find((activity) => activity.status !== 'hecho' && activity.status !== 'saltado');
-              if (next) onActivity(next);
-            }}
           />
           <View style={styles.timelineHeading}>
             <View>
@@ -779,15 +774,11 @@ function DayHeader({
   index,
   accommodation,
   onEditStart,
-  onMap,
-  onNext,
 }: {
   day: Trip['days'][number];
   index: number;
   accommodation: Trip['accommodation'];
   onEditStart: () => void;
-  onMap: () => void;
-  onNext: () => void;
 }) {
   const t = useTheme();
   const acts = day.activities;
@@ -816,11 +807,6 @@ function DayHeader({
       travel += leg.minutes;
     }
   }
-  const active = acts.filter((activity) => activity.status !== 'saltado');
-  const completed = active.filter((activity) => activity.status === 'hecho').length;
-  const next = acts.find((activity) => activity.status !== 'hecho' && activity.status !== 'saltado');
-  const nextPlace = next ? placeById(next.placeId) : null;
-  const progress = active.length ? completed / active.length : 0;
   return (
     <Card style={styles.dayCommand}>
       <View style={styles.dayHeadingRow}>
@@ -847,38 +833,6 @@ function DayHeader({
         <MiniStat icon="walk" text={fmtDist(meters)} />
         <MiniStat icon="bus" text={`${travel} min traslados`} />
       </View>
-      <View style={styles.progressHeading}>
-        <Body style={{ fontSize: 13, fontWeight: '800' }}>{completed} de {active.length} completadas</Body>
-        <Body muted style={{ fontSize: 12 }}>{Math.round(progress * 100)}%</Body>
-      </View>
-      <View style={[styles.progressTrack, { backgroundColor: t.border }]}>
-        <View style={[styles.progressFill, { backgroundColor: t.secondary, width: `${Math.round(progress * 100)}%` }]} />
-      </View>
-      {nextPlace && next ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Abrir próxima parada: ${nextPlace.name}`}
-          onPress={onNext}
-          style={({ pressed }) => [styles.nextStop, { backgroundColor: t.background }, pressed && { opacity: 0.75 }]}>
-          <View style={[styles.nextStopIcon, { backgroundColor: t.primarySoft }]}>
-            <Ionicons name="navigate" size={19} color={t.primary} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Label style={{ color: t.textSecondary }}>PRÓXIMA PARADA · {minToHHMM(next.startMin)}</Label>
-            <Body numberOfLines={1} style={{ fontWeight: '900' }}>{nextPlace.name}</Body>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color={t.textSecondary} />
-        </Pressable>
-      ) : (
-        <View style={[styles.nextStop, { backgroundColor: t.secondarySoft }]}>
-          <Ionicons name="checkmark-circle" size={22} color={t.secondary} />
-          <Body style={{ color: t.secondary, fontWeight: '900' }}>Día completado</Body>
-        </View>
-      )}
-      <Pressable accessibilityRole="button" onPress={onMap} style={({ pressed }) => [styles.mapRouteButton, pressed && { opacity: 0.65 }]}>
-        <Ionicons name="map-outline" size={17} color={t.secondary} />
-        <Body style={{ color: t.secondary, fontWeight: '900', fontSize: 13 }}>Ver recorrido en el mapa</Body>
-      </Pressable>
     </Card>
   );
 }
@@ -972,6 +926,7 @@ const TimelineActivity = memo(function TimelineActivity({
   const visual = categoryVisualFor(p);
   const color = visual.color;
   const statusLabel = activity.status === 'hecho' ? 'Completada' : activity.status === 'saltado' ? 'Cancelada' : activity.status === 'reservado' ? 'Reservada' : 'Pendiente';
+  const ticket = ticketInfo(p);
   return (
     <View style={styles.actRow}>
       <View style={{ width: 52, alignItems: 'flex-end', paddingTop: 2 }}>
@@ -993,65 +948,48 @@ const TimelineActivity = memo(function TimelineActivity({
             style={({ pressed }) => [styles.activityOpenArea, pressed && { opacity: 0.88 }]}>
             <PlaceImage place={p} style={styles.activityHeroImage} />
             <View style={styles.activityImageScrim} />
-            <View style={styles.activityMediaCopy}>
-              <View style={styles.activityMediaBadges}>
-                <View style={[styles.categoryBadgeOnImage, { backgroundColor: color }]}>
-                  <Ionicons name={visual.icon} size={13} color="#fff" />
-                  <Body style={{ color: '#fff', fontSize: 10, fontWeight: '900' }}>{visual.label}</Body>
-                </View>
-                {activity.mustSee && (
-                  <View style={styles.mustSeeOnImage}>
-                    <Ionicons name="star" size={12} color="#fff" />
-                    <Body style={{ color: '#fff', fontSize: 10, fontWeight: '900' }}>Imprescindible</Body>
-                  </View>
-                )}
+            <View style={styles.activityMediaBadges}>
+              <View style={[styles.categoryBadgeOnImage, { backgroundColor: color }]}>
+                <Ionicons name={visual.icon} size={13} color="#fff" />
+                <Body style={{ color: '#fff', fontSize: 10, fontWeight: '900' }}>{visual.label}</Body>
               </View>
-              <Body numberOfLines={2} style={styles.activityTitleOnImage}>{p.name}</Body>
-              <Body style={styles.activitySubtitleOnImage}>{p.zone} · {activity.durationMin} min</Body>
+              <View style={styles.activityFactsOnImage}>
+                <View style={styles.factOnImage}><Ionicons name="hourglass-outline" size={12} color={t.text} /><Body style={styles.factOnImageText}>{activity.durationMin} min</Body></View>
+                <View style={styles.factOnImage}><Body style={styles.factOnImageText}>{PRICE_LABEL(p.price)}</Body></View>
+              </View>
             </View>
           </Pressable>
-          <View style={styles.reorderActions}>
-            <Pressable
-              disabled={index === 0}
-              accessibilityLabel={`Mover ${p.name} más temprano`}
-              hitSlop={6}
-              onPress={(event) => { event.stopPropagation(); onMove(-1); }}
-              style={[styles.reorderButton, index === 0 && { opacity: 0.25 }]}>
-              <Ionicons name="chevron-up" size={17} color={t.textSecondary} />
-            </Pressable>
-            <Pressable
-              disabled={index === total - 1}
-              accessibilityLabel={`Mover ${p.name} más tarde`}
-              hitSlop={6}
-              onPress={(event) => { event.stopPropagation(); onMove(1); }}
-              style={[styles.reorderButton, index === total - 1 && { opacity: 0.25 }]}>
-              <Ionicons name="chevron-down" size={17} color={t.textSecondary} />
-            </Pressable>
-          </View>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Editar ${p.name}`} onPress={onEdit} style={styles.activityEditButton}>
+            <Ionicons name="create-outline" size={20} color={t.text} />
+          </Pressable>
         </View>
         <View style={styles.activityBody}>
-          <View style={styles.activityMeta}>
-            <View style={[styles.categoryBadge, { backgroundColor: visual.soft }]}>
-              <Ionicons name="time-outline" size={14} color={visual.color} />
-              <Body style={{ color: visual.color, fontSize: 11, fontWeight: '900' }}>{minToHHMM(activity.startMin)}–{minToHHMM(activity.startMin + activity.durationMin)}</Body>
+          <Pressable accessibilityRole="button" onPress={onPress} onLongPress={onMoveDay} style={({ pressed }) => pressed && { opacity: 0.68 }}>
+            <View style={styles.activityTitleRow}>
+              <View style={[styles.activitySequence, { backgroundColor: color }]}><Body style={styles.activitySequenceText}>{index + 1}</Body></View>
+              <Body numberOfLines={2} style={styles.activityTitle}>{p.name}</Body>
+              {p.rating > 0 && <View style={styles.ratingInline}><Ionicons name="star" size={14} color={t.warning} /><Body style={{ fontWeight: '900', fontSize: 13 }}>{p.rating.toFixed(1)}</Body></View>}
             </View>
-            <Body muted style={{ fontSize: 12 }}>{PRICE_LABEL(p.price)} · ★ {p.rating > 0 ? p.rating.toFixed(1) : 'Nuevo'}</Body>
-          </View>
-          <View style={styles.activityTags}>
-            {(() => {
-              const ti = ticketInfo(p);
-              if (ti.status === 'none' || ti.status === 'free') return null;
-              const ticketColor = ti.status === 'required' ? t.error : ti.reservation ? t.warning : t.primary;
-              return <Tag color={ticketColor} text={ti.label} />;
-            })()}
+            <Body numberOfLines={2} muted style={styles.activityDescription}>{p.desc}</Body>
+          </Pressable>
+          {(activity.mustSee || ticket.status !== 'none' && ticket.status !== 'free' || activity.note || ticketCount > 0 || activity.status !== 'plan') && <View style={styles.activityTags}>
+            {activity.mustSee && <Tag color={t.warning} text="Imprescindible" />}
+            {ticket.status !== 'none' && ticket.status !== 'free' && <Tag color={ticket.status === 'required' ? t.error : ticket.reservation ? t.warning : t.primary} text={ticket.label} />}
             {activity.note && <Tag color={t.warning} text="Verificar horario" />}
             {ticketCount > 0 && <Tag color={t.secondary} text={`${ticketCount} ticket${ticketCount > 1 ? 's' : ''}`} />}
-            <Tag color={activity.status === 'hecho' ? t.secondary : activity.status === 'saltado' ? t.error : t.textSecondary} text={statusLabel} />
-          </View>
-          <View style={[styles.quickActions, { borderTopColor: t.border }]}>
-            <QuickActivityAction icon="create-outline" label="Editar" onPress={onEdit} />
-            <QuickActivityAction icon="swap-horizontal-outline" label="Mover" onPress={onMoveDay} />
-            <QuickActivityAction icon="options-outline" label="Más opciones" onPress={onPress} />
+            {activity.status !== 'plan' && <Tag color={activity.status === 'hecho' ? t.secondary : activity.status === 'saltado' ? t.error : t.textSecondary} text={statusLabel} />}
+          </View>}
+          <View style={[styles.activityFooter, { borderTopColor: t.border }]}>
+            <View style={{ flex: 1, gap: 1 }}>
+              <Body style={{ fontSize: 12, fontWeight: '900' }}>{minToHHMM(activity.startMin)}–{minToHHMM(activity.startMin + activity.durationMin)}</Body>
+              <Body muted numberOfLines={1} style={{ fontSize: 11 }}>{p.zone}</Body>
+            </View>
+            <Pressable disabled={index === 0} accessibilityLabel={`Mover ${p.name} antes`} onPress={() => onMove(-1)} style={[styles.orderButton, index === 0 && { opacity: 0.28 }]}>
+              <Ionicons name="arrow-up" size={17} color={t.textSecondary} />
+            </Pressable>
+            <Pressable disabled={index === total - 1} accessibilityLabel={`Mover ${p.name} después`} onPress={() => onMove(1)} style={[styles.orderButton, index === total - 1 && { opacity: 0.28 }]}>
+              <Ionicons name="arrow-down" size={17} color={t.textSecondary} />
+            </Pressable>
           </View>
         </View>
       </Card>
@@ -1060,60 +998,72 @@ const TimelineActivity = memo(function TimelineActivity({
   );
 });
 
-function QuickActivityAction({ icon, label, onPress, danger }: { icon: any; label: string; onPress: () => void; danger?: boolean }) {
-  const t = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={(event) => { event.stopPropagation(); onPress(); }}
-      style={({ pressed }) => [styles.quickAction, pressed && { opacity: 0.55 }]}>
-      <Ionicons name={icon} size={16} color={danger ? t.error : t.textSecondary} />
-      <Body style={{ fontSize: 10, fontWeight: '800', color: danger ? t.error : t.textSecondary }}>{label}</Body>
-    </Pressable>
-  );
-}
-
 /* ============================== Mapa ============================== */
 
 function MapaTab({ trip, day, setDay, onActivity, onPlan }: { trip: Trip; day: number; setDay: (d: number) => void; onActivity: (a: Activity) => void; onPlan: () => void }) {
   const t = useTheme();
   const [sel, setSel] = useState<string | undefined>();
+  const { height: viewportHeight } = useWindowDimensions();
   const d = trip.days[day];
+  const mapHeight = Math.min(620, Math.max(410, Math.round(viewportHeight * 0.58)));
   const stops: MapStop[] = (d?.activities ?? []).map((a, i) => {
     const p = placeById(a.placeId)!;
     return { id: a.id, lat: p.lat, lng: p.lng, name: p.name, index: i + 1, color: categoryVisualFor(p).color };
   });
+  const selectedIndex = Math.max(0, (d?.activities ?? []).findIndex((activity) => activity.id === sel));
+  const selectedActivity = d?.activities[selectedIndex];
+  const selectedPlace = selectedActivity ? placeById(selectedActivity.placeId) : null;
+
+  useEffect(() => {
+    setSel(d?.activities[0]?.id);
+  }, [day, d?.activities]);
+
+  const selectRelative = (delta: -1 | 1) => {
+    const activities = d?.activities ?? [];
+    if (!activities.length) return;
+    const nextIndex = Math.max(0, Math.min(activities.length - 1, selectedIndex + delta));
+    setSel(activities[nextIndex].id);
+  };
 
   return (
     <>
       <DaySelector trip={trip} day={day} setDay={(x) => { setDay(x); setSel(undefined); }} />
       <ViewModeSwitch mode="map" onPlan={onPlan} onMap={() => {}} />
-      <Card style={{ padding: 0, overflow: 'hidden' }}>
-        <RouteMap stops={stops} accommodation={trip.accommodation} selectedId={sel} onSelect={setSel} height={300} />
-      </Card>
-      <View style={{ gap: Spacing.two }}>
-        {(d?.activities ?? []).map((a, i) => {
-          const p = placeById(a.placeId);
-          if (!p) return null;
-          const on = sel === a.id;
-          return (
-            <Pressable key={a.id} onPress={() => setSel(a.id)} onLongPress={() => onActivity(a)}>
-              <Card style={[styles.mapCard, on && { borderColor: t.primary, borderWidth: 2 }]}>
-                <View style={[styles.mapNum, { backgroundColor: categoryVisualFor(p).color }]}>
-                  <Body style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>{i + 1}</Body>
+      <View style={[styles.mapStage, { height: mapHeight, backgroundColor: t.secondarySoft }]}>
+        <RouteMap stops={stops} accommodation={trip.accommodation} selectedId={sel} onSelect={setSel} height={mapHeight} />
+        <View style={styles.mapTopBar} pointerEvents="box-none">
+          <View style={styles.mapRouteBadge}>
+            <Ionicons name="navigate" size={15} color={t.secondary} />
+            <Body style={{ color: t.secondary, fontWeight: '900', fontSize: 12 }}>{stops.length} paradas · {d?.zone || trip.cityName}</Body>
+          </View>
+        </View>
+        {selectedActivity && selectedPlace && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Abrir detalle de ${selectedPlace.name}`}
+            onPress={() => onActivity(selectedActivity)}
+            style={({ pressed }) => [styles.mapActivitySheet, pressed && { transform: [{ scale: 0.99 }] }]}>
+            <PlaceImage place={selectedPlace} compact style={styles.mapActivityImage} />
+            <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+              <View style={styles.mapActivityTitleRow}>
+                <View style={[styles.mapNum, { backgroundColor: categoryVisualFor(selectedPlace).color }]}>
+                  <Body style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>{selectedIndex + 1}</Body>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Body style={{ fontWeight: '700' }}>{p.name}</Body>
-                  <Body muted style={{ fontSize: 12 }}>{minToHHMM(a.startMin)} · {CATEGORY_LABEL[p.categories[0]]}</Body>
-                </View>
-                <Pressable onPress={() => onActivity(a)} hitSlop={8}>
-                  <Ionicons name="information-circle-outline" size={22} color={t.textSecondary} />
-                </Pressable>
-              </Card>
-            </Pressable>
-          );
-        })}
+                <Body numberOfLines={1} style={{ flex: 1, fontWeight: '900', fontSize: 15 }}>{selectedPlace.name}</Body>
+              </View>
+              <Body muted numberOfLines={1} style={{ fontSize: 11 }}>{minToHHMM(selectedActivity.startMin)} · {selectedActivity.durationMin} min · {CATEGORY_LABEL[selectedPlace.categories[0]]}</Body>
+              <Body numberOfLines={1} style={{ fontSize: 11 }}>{selectedPlace.desc}</Body>
+            </View>
+            <View style={styles.mapStepper}>
+              <Pressable disabled={selectedIndex === 0} accessibilityLabel="Parada anterior" onPress={(event) => { event.stopPropagation(); selectRelative(-1); }} style={[styles.mapStepButton, selectedIndex === 0 && { opacity: 0.3 }]}>
+                <Ionicons name="chevron-back" size={19} color={t.text} />
+              </Pressable>
+              <Pressable disabled={selectedIndex === (d?.activities.length ?? 1) - 1} accessibilityLabel="Parada siguiente" onPress={(event) => { event.stopPropagation(); selectRelative(1); }} style={[styles.mapStepButton, selectedIndex === (d?.activities.length ?? 1) - 1 && { opacity: 0.3 }]}>
+                <Ionicons name="chevron-forward" size={19} color={t.text} />
+              </Pressable>
+            </View>
+          </Pressable>
+        )}
       </View>
     </>
   );
@@ -1978,27 +1928,40 @@ const styles = StyleSheet.create({
   boundaryTimeline: { flex: 1, minHeight: 66, flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: Radius.md, borderWidth: 1, paddingHorizontal: Spacing.three },
   activityMeta: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   activityCard: { padding: 0, gap: 0, overflow: 'hidden' },
-  activityMedia: { position: 'relative', minHeight: 176 },
-  activityOpenArea: { width: '100%', minHeight: 176 },
-  activityHeroImage: { width: '100%', height: 176 },
-  activityImageScrim: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: 'rgba(13,20,28,0.34)' },
-  activityMediaCopy: { position: 'absolute', left: 14, right: 58, bottom: 13, gap: 3 },
-  activityMediaBadges: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 4 },
+  activityMedia: { position: 'relative', minHeight: 164 },
+  activityOpenArea: { width: '100%', minHeight: 164 },
+  activityHeroImage: { width: '100%', height: 164 },
+  activityImageScrim: { position: 'absolute', left: 0, right: 0, top: 0, height: 62, backgroundColor: 'rgba(13,20,28,0.18)' },
+  activityMediaBadges: { position: 'absolute', left: 10, right: 10, top: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
   categoryBadgeOnImage: { minHeight: 27, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, borderRadius: Radius.pill },
   mustSeeOnImage: { minHeight: 27, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, borderRadius: Radius.pill, backgroundColor: 'rgba(0,0,0,0.38)' },
-  activityTitleOnImage: { color: '#fff', fontSize: 21, lineHeight: 24, fontWeight: '900', textShadowColor: 'rgba(0,0,0,0.35)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 5 },
-  activitySubtitleOnImage: { color: 'rgba(255,255,255,0.84)', fontSize: 11, fontWeight: '700' },
-  activityBody: { gap: 8, paddingHorizontal: 12, paddingTop: 11 },
+  activityFactsOnImage: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  factOnImage: { minHeight: 28, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, borderRadius: Radius.pill, backgroundColor: 'rgba(255,255,255,0.94)' },
+  factOnImageText: { color: '#1D2733', fontSize: 10, fontWeight: '900' },
+  activityEditButton: { position: 'absolute', right: 11, bottom: 11, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.96)', alignItems: 'center', justifyContent: 'center', shadowColor: '#1D2733', shadowOpacity: 0.17, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 4 },
+  activityBody: { gap: 8, paddingHorizontal: 13, paddingTop: 12, paddingBottom: 4 },
+  activityTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  activitySequence: { width: 27, height: 27, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  activitySequenceText: { color: '#fff', fontSize: 12, fontWeight: '900' },
+  activityTitle: { flex: 1, fontSize: 17, lineHeight: 21, fontWeight: '900' },
+  ratingInline: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  activityDescription: { marginTop: 7, fontSize: 12, lineHeight: 17 },
   activityTags: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
   categoryBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 5, borderRadius: Radius.pill },
-  quickActions: { flexDirection: 'row', borderTopWidth: 1, marginTop: 7, paddingTop: 8 },
-  quickAction: { flex: 1, minHeight: 42, alignItems: 'center', justifyContent: 'center', gap: 2 },
+  activityFooter: { minHeight: 50, flexDirection: 'row', alignItems: 'center', gap: 6, borderTopWidth: 1, marginTop: 3, paddingTop: 7 },
+  orderButton: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   legRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
   legLine: { width: 2, height: 22 },
   legPill: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 7, borderRadius: Radius.pill },
-  reorderActions: { position: 'absolute', top: 9, right: 9, flexDirection: 'column', gap: 4, padding: 4, borderRadius: 13, backgroundColor: 'rgba(255,255,255,0.94)' },
-  reorderButton: { width: 32, height: 32, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
   mapCard: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  mapStage: { position: 'relative', borderRadius: Radius.lg, overflow: 'hidden' },
+  mapTopBar: { position: 'absolute', top: 12, left: 12, right: 12, flexDirection: 'row' },
+  mapRouteBadge: { minHeight: 38, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 11, borderRadius: Radius.pill, backgroundColor: 'rgba(255,255,255,0.96)', shadowColor: '#1D2733', shadowOpacity: 0.12, shadowRadius: 7, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
+  mapActivitySheet: { position: 'absolute', left: 10, right: 10, bottom: 10, minHeight: 92, flexDirection: 'row', alignItems: 'center', gap: 10, padding: 9, borderRadius: Radius.md, backgroundColor: 'rgba(255,255,255,0.97)', shadowColor: '#1D2733', shadowOpacity: 0.2, shadowRadius: 13, shadowOffset: { width: 0, height: 5 }, elevation: 7 },
+  mapActivityImage: { width: 74, height: 74, borderRadius: 12 },
+  mapActivityTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  mapStepper: { gap: 3 },
+  mapStepButton: { width: 34, height: 34, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
   viewSwitch: { flexDirection: 'row', padding: 4, borderRadius: Radius.md, gap: 4 },
   viewSwitchButton: { flex: 1, minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 12 },
   utilitySwitch: { flexDirection: 'row', gap: 4, padding: 4, borderRadius: Radius.md },

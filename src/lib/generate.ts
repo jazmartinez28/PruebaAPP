@@ -14,6 +14,56 @@ const uid = () => `a${Date.now().toString(36)}${(counter++).toString(36)}`;
 
 type Weighted = { place: Place; score: number };
 
+const INTENT_CATEGORY_TERMS: Partial<Record<Place['categories'][number], string[]>> = {
+  gastronomia: ['comer', 'comida', 'restaurante', 'cafe', 'pizza', 'mercado', 'gastronomia'],
+  historia: ['historia', 'historico', 'monumento', 'antiguo'],
+  museos: ['museo', 'exposicion', 'galeria'],
+  arquitectura: ['arquitectura', 'edificio', 'iglesia', 'catedral'],
+  arte: ['arte', 'pintura', 'escultura'],
+  parques: ['parque', 'jardin', 'verde'],
+  naturaleza: ['naturaleza', 'playa', 'rio', 'sendero'],
+  compras: ['compras', 'shopping', 'tiendas', 'mercado'],
+  vidanocturna: ['noche', 'bar', 'boliche', 'club'],
+  fotografia: ['foto', 'fotografia', 'mirador', 'vista'],
+  iconico: ['famoso', 'imperdible', 'clasico', 'iconico'],
+  local: ['local', 'barrio', 'autentico'],
+  gratis: ['gratis', 'gratuito', 'economico'],
+  musica: ['musica', 'concierto', 'teatro'],
+  deportes: ['deporte', 'estadio', 'partido', 'bicicleta'],
+};
+
+function normalized(value = '') {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase();
+}
+
+function intentAffinity(place: Place, intent?: string) {
+  const query = normalized(intent).trim();
+  if (!query) return 0;
+  const searchable = normalized([place.name, place.zone, place.desc, place.reason, ...place.categories].filter(Boolean).join(' '));
+  let affinity = 0;
+  const meaningfulWords = query.split(/\s+/).filter((word) => word.length >= 4);
+  affinity += meaningfulWords.filter((word) => searchable.includes(word)).length * 6;
+  const normalizedName = normalized(place.name);
+  const rejectsName = [`evitar ${normalizedName}`, `sin ${normalizedName}`, `no quiero ${normalizedName}`].some((phrase) => query.includes(phrase));
+  if (rejectsName) affinity -= 120;
+  else if (query.includes(normalizedName)) affinity += 90;
+  place.categories.forEach((category) => {
+    const terms = INTENT_CATEGORY_TERMS[category] ?? [];
+    const rejected = terms.some((term) => [`evitar ${term}`, `sin ${term}`, `no quiero ${term}`, `no me interesa ${term}`].some((phrase) => query.includes(phrase)));
+    if (rejected) affinity -= 45;
+    else if (terms.some((term) => query.includes(term))) affinity += 15;
+  });
+  return Math.max(-140, Math.min(120, affinity));
+}
+
+function popularityOf(place: Place) {
+  if (place.popularityScore != null) return place.popularityScore;
+  if (place.categories.includes('iconico')) return place.source === 'openstreetmap' ? 76 : 96;
+  if (!place.source || place.source === 'curated') return 82;
+  if (place.kind === 'event') return 74;
+  return 48;
+}
+
 /** Genera el itinerario completo a partir del borrador. */
 export function generateItinerary(draft: Draft): Day[] {
   if (!draft.cityId || !draft.startDate || !draft.endDate) return [];
@@ -59,11 +109,12 @@ export function generateItinerary(draft: Draft): Day[] {
   const meals = all.filter((p) => p.isMeal);
 
   const score = (p: Place): number => {
-    let s = p.rating * 10;
+    let s = p.rating * 8 + popularityOf(p) * 0.72;
     const matches = p.categories.filter((c) => draft.interests.includes(c)).length;
     s += matches * 12;
-    if (p.categories.includes('iconico')) s += 8;
-    if (p.kind === 'event') s += 30;
+    if (p.categories.includes('iconico')) s += 18;
+    if (p.kind === 'event') s += 14;
+    s += intentAffinity(p, draft.travelIntentText);
     if (draft.mustSeeIds.includes(p.id)) s += 1000;
     if (p.price > budgetMax) s -= 25;
     const groupSignals = {

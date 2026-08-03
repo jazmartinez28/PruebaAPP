@@ -102,6 +102,7 @@ export async function searchDestinationPlaces(
       durationMin: /restaurant|food|caf|bar/i.test(item.category ?? '') ? 75 : 60,
       price: Math.max(0, Math.min(3, item.price ?? 1)) as PriceTier,
       rating: item.rating && item.rating > 5 ? item.rating / 2 : item.rating ?? 0,
+      popularityScore: Math.min(92, 58 + Math.round((item.rating && item.rating > 5 ? item.rating / 2 : item.rating ?? 4) * 6)),
       desc: item.category ? `${item.category} en ${item.zone || city.name}.` : `Lugar en ${city.name}.`,
       reason: 'Encontrado para tu destino mediante búsqueda global.',
       address: item.address,

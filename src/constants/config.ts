@@ -15,7 +15,7 @@ export const REMOTE_CONFIG = {
   freeTripLimit: null, // sin límite de viajes durante la etapa de crecimiento
   freeAlternatives: 3, // alternativas al reemplazar (gratis)
   premiumAlternatives: 12,
-  cityCatalogTarget: 360, // margen para sostener al menos 300 opciones variadas por ciudad
+  cityCatalogTarget: 420, // catálogo real ampliado; sostiene más de 300 opciones variadas por ciudad
   cityCatalogReadyMin: 300,
   liveEventsPerTrip: 100,
   premiumMonthly: 'US$5 / mes',

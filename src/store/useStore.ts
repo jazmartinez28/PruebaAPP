@@ -395,6 +395,8 @@ export const useStore = create<State>()(
           pace: draft.pace,
           budget: draft.budget,
           mustSeeIds: draft.mustSeeIds,
+          travelIntentText: draft.travelIntentText,
+          travelIntentAudioUri: draft.travelIntentAudioUri,
           dayStartMin: draft.dayStartMin,
           partySize: draft.partySize,
           groupType: draft.groupType,

@@ -38,6 +38,14 @@
       "expo-calendar",
       "expo-document-picker",
       [
+        "expo-audio",
+        {
+          "microphonePermission": "Rumbo necesita el micrófono para guardar tus preferencias de viaje en una nota de voz.",
+          "recordAudioAndroid": true,
+          "enableBackgroundRecording": false
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "Rumbo necesita acceso a tus fotos para que elijas una imagen de perfil.",

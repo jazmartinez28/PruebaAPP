@@ -436,7 +436,7 @@ function ContextualActions({
         <View style={{ flex: 1 }}><Label style={{ color: t.secondary }}>PULSO DEL VIAJE</Label><H2>{tasks.length ? 'Una cosa menos por recordar' : 'Tu viaje está listo para salir'}</H2></View>
         <Pressable accessibilityRole="button" accessibilityLabel="Crear otro viaje" onPress={onCreate} style={[styles.addTrip, { borderColor: t.border }]}><Ionicons name="add" size={19} color={t.primary} /><Body style={{ color: t.primary, fontWeight: '800', fontSize: 12 }}>Otro</Body></Pressable>
       </View>
-      <View style={[styles.readinessBoard, { backgroundColor: t.text }]}>
+      <View style={[styles.readinessBoard, { backgroundColor: '#1D2733' }]}>
         <View style={styles.readinessTop}>
           <View style={[styles.readinessScore, { borderColor: t.secondary }]}>
             <Body style={{ color: '#fff', fontSize: 22, fontWeight: '900' }}>{readiness}%</Body>
@@ -448,10 +448,10 @@ function ContextualActions({
             <Body style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>{nextTask.text}</Body>
           </View>
         </View>
-        <Pressable accessibilityRole="button" onPress={nextTask.action} style={({ pressed }) => [styles.nextTaskAction, { backgroundColor: t.surface }, pressed && styles.pressed]}>
+        <Pressable accessibilityRole="button" onPress={nextTask.action} style={({ pressed }) => [styles.nextTaskAction, { backgroundColor: '#FFFFFF' }, pressed && styles.pressed]}>
           <View style={[styles.contextIcon, { backgroundColor: `${nextTask.tone}18` }]}><Ionicons name={nextTask.icon} size={21} color={nextTask.tone} /></View>
-          <Body style={{ flex: 1, fontWeight: '900' }}>{nextTask.title}</Body>
-          <Ionicons name="arrow-forward" size={19} color={t.text} />
+          <Body style={{ flex: 1, color: '#1D2733', fontWeight: '900' }}>{nextTask.title}</Body>
+          <Ionicons name="arrow-forward" size={19} color="#1D2733" />
         </Pressable>
         {activeTasks.length > 1 && (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pendingRail}>

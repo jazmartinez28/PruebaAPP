@@ -54,16 +54,17 @@ export function RouteMap({
     }
     const pts: [number, number][] = [...routePts];
     if (routePts.length > 1) {
-      L.polyline(routePts, { color: '#16A085', weight: 3, opacity: 0.7, dashArray: '2 8' }).addTo(map);
+      L.polyline(routePts, { color: '#FFFFFF', weight: 8, opacity: 0.92, lineCap: 'round', lineJoin: 'round' }).addTo(map);
+      L.polyline(routePts, { color: '#16A085', weight: 4, opacity: 0.95, lineCap: 'round', lineJoin: 'round' }).addTo(map);
     }
 
     stops.forEach((s) => {
       const sel = s.id === selectedId;
       const icon = L.divIcon({
         className: '',
-        html: `<div style="width:${sel ? 30 : 24}px;height:${sel ? 30 : 24}px;border-radius:50%;background:${s.color};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)">${s.index}</div>`,
-        iconSize: [sel ? 30 : 24, sel ? 30 : 24],
-        iconAnchor: [sel ? 15 : 12, sel ? 15 : 12],
+        html: `<div aria-label="Parada ${s.index}" style="width:${sel ? 42 : 34}px;height:${sel ? 42 : 34}px;border-radius:50%;background:${s.color};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:13px;border:${sel ? 4 : 3}px solid #fff;box-shadow:0 3px 10px rgba(29,39,51,.28);transition:all .18s ease-out">${s.index}</div>`,
+        iconSize: [sel ? 42 : 34, sel ? 42 : 34],
+        iconAnchor: [sel ? 21 : 17, sel ? 21 : 17],
       });
       const marker = L.marker([s.lat, s.lng], { icon, zIndexOffset: sel ? 1000 : 0 }).addTo(map);
       marker.on('click', () => onSelect?.(s.id));
@@ -81,9 +82,9 @@ export function RouteMap({
     }
 
     if (pts.length) {
-      map.fitBounds(L.latLngBounds(pts).pad(0.2));
+      map.fitBounds(L.latLngBounds(pts).pad(0.28), { paddingTopLeft: [28, 28], paddingBottomRight: [28, 88] });
     }
-  }, [stops, accommodation, onSelect]);
+  }, [stops, accommodation, onSelect, selectedId]);
 
   // selección: centrar
   useEffect(() => {

@@ -44,6 +44,7 @@ export type Place = {
   durationMin: number; // duración estimada de visita
   price: PriceTier;
   rating: number; // 0-5
+  popularityScore?: number; // 0-100, relevancia turística/proveedor
   desc: string;
   reason?: string; // por qué lo recomendamos
   opensDay?: number[]; // días de la semana que abre (0=Dom..6=Sáb); undefined = siempre
@@ -132,6 +133,8 @@ export type Trip = {
   pace: Pace;
   budget: Budget;
   mustSeeIds: string[]; // lugares imprescindibles
+  travelIntentText?: string; // preferencias libres escritas o transcriptas
+  travelIntentAudioUri?: string; // referencia local a la nota de voz
   savedIds: string[]; // guardados
   removedIds: string[]; // descartados
   dayStartMin?: number; // hora habitual de comienzo del día
@@ -170,6 +173,8 @@ export type Draft = {
   pace: Pace;
   budget: Budget;
   mustSeeIds: string[];
+  travelIntentText?: string;
+  travelIntentAudioUri?: string;
   dayStartMin?: number;
   partySize?: number;
   groupType?: GroupType;
