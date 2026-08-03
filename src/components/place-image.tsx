@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { Body } from '@/components/ui';
+import { cityById } from '@/data/cities';
 import { categoryVisualFor } from '@/lib/category-style';
+import { resolvePlaceImage } from '@/lib/place-images';
 import type { Place } from '@/types';
 
 export function PlaceImage({
@@ -17,30 +19,51 @@ export function PlaceImage({
   compact?: boolean;
 }) {
   const visual = categoryVisualFor(place);
-  const [failedUri, setFailedUri] = useState<string | null>(null);
+  const city = cityById(place.cityId);
+  const [resolvedUri, setResolvedUri] = useState<string | null>(null);
+  const [failedUris, setFailedUris] = useState<string[]>([]);
 
   useEffect(() => {
-    setFailedUri(null);
-  }, [place.id, place.imageUrl]);
+    let active = true;
+    setResolvedUri(null);
+    setFailedUris([]);
+    if (!place.imageUrl) {
+      void resolvePlaceImage(place).then((uri) => {
+        if (active) setResolvedUri(uri);
+      });
+    }
+    return () => { active = false; };
+  }, [place]);
 
-  if (place.imageUrl && failedUri !== place.imageUrl) {
+  useEffect(() => {
+    if (!place.imageUrl || !failedUris.includes(place.imageUrl) || resolvedUri) return;
+    let active = true;
+    void resolvePlaceImage({ ...place, imageUrl: undefined }).then((uri) => {
+      if (active) setResolvedUri(uri);
+    });
+    return () => { active = false; };
+  }, [failedUris, place, resolvedUri]);
+
+  const sourceUri = [place.imageUrl, resolvedUri, city?.image].find((uri) => uri && !failedUris.includes(uri));
+
+  if (sourceUri) {
     return (
       <Image
-        accessibilityLabel={`Imagen de ${place.name}`}
-        source={{ uri: place.imageUrl }}
+        accessibilityLabel={`Fotografía de ${place.name}`}
+        source={{ uri: sourceUri }}
         placeholder={{ blurhash: 'LEHV6nWB2yk8pyo0adR*.7kCMdnj' }}
         transition={220}
         contentFit="cover"
         cachePolicy="memory-disk"
         recyclingKey={place.id}
-        onError={() => setFailedUri(place.imageUrl ?? null)}
+        onError={() => setFailedUris((current) => current.includes(sourceUri) ? current : [...current, sourceUri])}
         style={style as StyleProp<ImageStyle>}
       />
     );
   }
   return (
     <View
-      accessibilityLabel={`Ilustración de categoría para ${place.name}`}
+      accessibilityLabel={`Imagen no disponible para ${place.name}`}
       style={[styles.fallback, { backgroundColor: visual.soft }, style as StyleProp<ViewStyle>]}>
       <View style={[styles.icon, compact && styles.iconCompact, { backgroundColor: visual.color }]}>
         <Ionicons name={visual.icon} size={compact ? 16 : 28} color="#fff" />

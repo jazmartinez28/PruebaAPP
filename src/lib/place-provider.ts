@@ -250,6 +250,7 @@ export async function fetchCityPlaces(city: City, limit = 360): Promise<Place[]>
         officialUrl,
         bookingUrl: tags['contact:booking'] || officialUrl,
         imageUrl: imageOf(tags),
+        wikipedia: tags.wikipedia,
         source: 'openstreetmap',
         sourceUrl: `https://www.openstreetmap.org/${element.type}/${element.id}`,
       };

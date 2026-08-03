@@ -57,6 +57,7 @@ export type Place = {
   officialUrl?: string;
   bookingUrl?: string;
   imageUrl?: string;
+  wikipedia?: string;
   kind?: 'place' | 'event';
   eventDate?: string;
   eventStartMin?: number;
