@@ -58,6 +58,7 @@ export type Place = {
   bookingUrl?: string;
   imageUrl?: string;
   wikipedia?: string;
+  wikidata?: string;
   kind?: 'place' | 'event';
   eventDate?: string;
   eventStartMin?: number;
@@ -91,12 +92,36 @@ export type Activity = {
 
 export type Day = {
   date: string; // ISO yyyy-mm-dd
+  cityId?: string;
+  cityName?: string;
+  country?: string;
   zone: string; // zona principal del día
   startMin?: number; // hora de inicio del día (minutos desde 00:00)
   activities: Activity[];
 };
 
 export type TripStatus = 'proximo' | 'encurso' | 'finalizado';
+
+export type TripDestination = {
+  cityId: string;
+  cityName: string;
+  country: string;
+  days: number;
+  order: number;
+};
+
+export type IntercityTransportMode = 'flight' | 'train' | 'bus' | 'car' | 'ferry' | 'unknown';
+export type IntercityLeg = {
+  id: string;
+  fromCityId: string;
+  toCityId: string;
+  mode: IntercityTransportMode;
+  status: 'pending' | 'confirmed';
+  departureAt?: string;
+  arrivalAt?: string;
+  provider?: string;
+  reference?: string;
+};
 
 export type Accommodation = {
   name: string;
@@ -127,6 +152,8 @@ export type Trip = {
   cityId: string;
   cityName: string;
   country: string;
+  destinations?: TripDestination[];
+  intercityLegs?: IntercityLeg[];
   startDate: string; // ISO
   endDate: string; // ISO
   accommodation: Accommodation;
@@ -166,6 +193,7 @@ export type Draft = {
   cityId?: string;
   cityName?: string;
   country?: string;
+  destinations?: TripDestination[];
   startDate?: string;
   endDate?: string;
   accommodation: Accommodation;

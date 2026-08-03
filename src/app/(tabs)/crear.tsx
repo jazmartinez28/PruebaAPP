@@ -16,8 +16,8 @@ import { Body, Button, Card, Chip, H1, Label } from '@/components/ui';
 import { CITY_CURRENCY, REMOTE_CONFIG } from '@/constants/config';
 import { Radius, Spacing } from '@/constants/theme';
 import { BUDGETS, CATEGORY_LABEL, INTERESTS, PACES } from '@/data/catalog';
-import { CITIES, cityById } from '@/data/cities';
-import { placesByCity } from '@/data/places';
+import { CITIES, cityById, type City } from '@/data/cities';
+import { placeById, placesByCity } from '@/data/places';
 import { useTheme } from '@/hooks/use-theme';
 import { daysInclusive, fmtRange } from '@/lib/dates';
 import { centroid } from '@/lib/geo';
@@ -27,7 +27,7 @@ import {
 } from '@/lib/place-provider';
 import { PlaceSearchError, searchDestinationPlaces } from '@/lib/place-search';
 import { useStore } from '@/store/useStore';
-import type { Accommodation, AccommodationChoice, Budget, Category, Draft, GroupType, Place, TravelPointType } from '@/types';
+import type { Accommodation, AccommodationChoice, Budget, Category, Draft, GroupType, Place, TravelPointType, TripDestination } from '@/types';
 
 const TOTAL = 8;
 const STEP_LABELS = ['Destino', 'Fechas', 'Tu base', 'Intereses', 'Tu ritmo', 'Presupuesto', 'Imprescindibles', 'Revisión'];
@@ -57,6 +57,19 @@ const DAY_STARTS: { min: number; label: string; sub: string; icon: keyof typeof 
   { min: 9 * 60, label: '09:00', sub: 'Horario equilibrado', icon: 'partly-sunny-outline' },
   { min: 10 * 60, label: '10:00', sub: 'Prefiero empezar tarde', icon: 'cafe-outline' },
 ];
+const REGIONS: ('Todas' | City['region'])[] = ['Todas', 'Europa', 'América', 'Asia', 'África', 'Oceanía'];
+const MAX_DESTINATIONS = 6;
+
+function distributeDestinationDays(destinations: TripDestination[], totalDays: number) {
+  if (!destinations.length || totalDays < destinations.length) return destinations;
+  const base = Math.floor(totalDays / destinations.length);
+  const extra = totalDays % destinations.length;
+  return destinations.map((destination, index) => ({
+    ...destination,
+    order: index,
+    days: base + (index < extra ? 1 : 0),
+  }));
+}
 
 export default function CrearScreen() {
   const t = useTheme();
@@ -79,12 +92,14 @@ export default function CrearScreen() {
 
   const [step, setStep] = useState(0);
   const [query, setQuery] = useState('');
+  const [region, setRegion] = useState<(typeof REGIONS)[number]>('Todas');
   const accChoice = draft.accommodationChoice ?? (draft.accommodation ? 'yes' : null);
   const [hotelQuery, setHotelQuery] = useState(draft.accommodation?.address ?? '');
   const [hotelResults, setHotelResults] = useState<GeocodedAccommodation[]>([]);
   const [hotelLoading, setHotelLoading] = useState(false);
   const [hotelError, setHotelError] = useState<string | null>(null);
   const [mustQuery, setMustQuery] = useState('');
+  const [activeMustCityId, setActiveMustCityId] = useState<string | undefined>(draft.cityId);
   const [manualName, setManualName] = useState('');
   const [manualReference, setManualReference] = useState('');
   const [showManual, setShowManual] = useState(false);
@@ -103,10 +118,20 @@ export default function CrearScreen() {
 
   const cityPlaces = draft.cityId ? placesByCity(draft.cityId) : [];
   const zones = Array.from(new Set(cityPlaces.map((place) => place.zone)));
-  const filteredCities = CITIES.filter(
-    (c) => !query || `${c.name} ${c.country}`.toLowerCase().includes(query.toLowerCase()),
-  );
-  const localMustMatches = cityPlaces
+  const selectedDestinations: TripDestination[] = draft.destinations?.length
+    ? draft.destinations.slice().sort((a, b) => a.order - b.order)
+    : draft.cityId && draft.cityName && draft.country
+      ? [{ cityId: draft.cityId, cityName: draft.cityName, country: draft.country, days: 1, order: 0 }]
+      : [];
+  const mustCityId = selectedDestinations.some((destination) => destination.cityId === activeMustCityId)
+    ? activeMustCityId
+    : selectedDestinations[0]?.cityId;
+  const mustCityPlaces = mustCityId ? placesByCity(mustCityId) : [];
+  const filteredCities = CITIES.filter((city) => {
+    const matchesQuery = !query || `${city.name} ${city.country}`.toLowerCase().includes(query.toLowerCase());
+    return matchesQuery && (region === 'Todas' || city.region === region);
+  });
+  const localMustMatches = mustCityPlaces
     .filter((place) =>
       !mustQuery.trim() ||
       `${place.name} ${place.zone} ${place.address ?? ''}`.toLowerCase().includes(mustQuery.trim().toLowerCase()),
@@ -165,7 +190,7 @@ export default function CrearScreen() {
 
   useEffect(() => {
     const search = mustQuery.trim();
-    const city = draft.cityId ? cityById(draft.cityId) : undefined;
+    const city = mustCityId ? cityById(mustCityId) : undefined;
     if (step !== 6 || !city || search.length < 2) {
       setRemotePlaces([]);
       setPlaceSearchState('idle');
@@ -197,11 +222,15 @@ export default function CrearScreen() {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [draft.cityId, mustQuery, step]);
+  }, [mustCityId, mustQuery, step]);
 
   const canContinue = () => {
-    if (step === 0) return !!draft.cityId;
-    if (step === 1) return !!draft.startDate && !!draft.endDate;
+    if (step === 0) return selectedDestinations.length > 0;
+    if (step === 1) {
+      if (!draft.startDate || !draft.endDate) return false;
+      const total = daysInclusive(draft.startDate, draft.endDate);
+      return total >= selectedDestinations.length && selectedDestinations.reduce((sum, item) => sum + item.days, 0) === total;
+    }
     if (step === 2) return Boolean(accChoice) && (accChoice !== 'yes' || Boolean(draft.accommodation));
     if (step === 3) return draft.interests.length > 0;
     if (step === 4) return Boolean(draft.partySize && draft.partySize > 0) && Boolean(draft.groupType) && draft.dayStartMin != null;
@@ -237,6 +266,76 @@ export default function CrearScreen() {
     const c = centroid(pts);
     const acc: Accommodation = { name: `Zona ${zone}`, lat: c.lat, lng: c.lng, zone };
     setAccommodation(acc);
+  };
+
+  const toggleDestination = (city: City) => {
+    const exists = selectedDestinations.some((destination) => destination.cityId === city.id);
+    if (!exists && selectedDestinations.length >= MAX_DESTINATIONS) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      return;
+    }
+    const previousPrimary = selectedDestinations[0]?.cityId;
+    const next = exists
+      ? selectedDestinations.filter((destination) => destination.cityId !== city.id)
+      : [...selectedDestinations, {
+          cityId: city.id,
+          cityName: city.name,
+          country: city.country,
+          days: 1,
+          order: selectedDestinations.length,
+        }];
+    const total = draft.startDate && draft.endDate ? daysInclusive(draft.startDate, draft.endDate) : 0;
+    const normalized = total >= next.length ? distributeDestinationDays(next, total) : next.map((item, index) => ({ ...item, order: index }));
+    const primary = normalized[0];
+    setDraft({
+      destinations: normalized,
+      cityId: primary?.cityId,
+      cityName: primary?.cityName,
+      country: primary?.country,
+      ...(previousPrimary && previousPrimary !== primary?.cityId
+        ? { accommodation: null, accommodationChoice: undefined, mustSeeIds: [] }
+        : {}),
+    });
+    if (!exists) void loadCityCatalog(city.id);
+    void Haptics.selectionAsync();
+  };
+
+  const moveDestination = (cityId: string, delta: -1 | 1) => {
+    const from = selectedDestinations.findIndex((destination) => destination.cityId === cityId);
+    const to = from + delta;
+    if (from < 0 || to < 0 || to >= selectedDestinations.length) return;
+    const next = selectedDestinations.slice();
+    [next[from], next[to]] = [next[to], next[from]];
+    const normalized = next.map((destination, index) => ({ ...destination, order: index }));
+    setDraft({
+      destinations: normalized,
+      cityId: normalized[0].cityId,
+      cityName: normalized[0].cityName,
+      country: normalized[0].country,
+      accommodation: null,
+      accommodationChoice: undefined,
+      mustSeeIds: [],
+    });
+    void Haptics.selectionAsync();
+  };
+
+  const shiftDestinationDay = (cityId: string, delta: -1 | 1) => {
+    const targetIndex = selectedDestinations.findIndex((destination) => destination.cityId === cityId);
+    if (targetIndex < 0) return;
+    const next = selectedDestinations.map((destination) => ({ ...destination }));
+    if (delta > 0) {
+      const donorIndex = next.findIndex((destination, index) => index !== targetIndex && destination.days > 1);
+      if (donorIndex < 0) return;
+      next[targetIndex].days += 1;
+      next[donorIndex].days -= 1;
+    } else {
+      if (next[targetIndex].days <= 1 || next.length < 2) return;
+      const receiverIndex = (targetIndex + 1) % next.length;
+      next[targetIndex].days -= 1;
+      next[receiverIndex].days += 1;
+    }
+    setDraft({ destinations: next });
+    void Haptics.selectionAsync();
   };
 
   const searchHotel = async () => {
@@ -287,7 +386,37 @@ export default function CrearScreen() {
         {/* ---------- Paso 1: Destino ---------- */}
         {step === 0 && (
           <>
-            <StepIntro icon="location-outline" title="¿A dónde vas?" description="Elegí la ciudad y empezamos a construir un viaje pensado para vos." />
+            <StepIntro icon="location-outline" title="¿Qué ciudades querés conectar?" description="Elegí una ciudad o armá una ruta completa. El orden que marques será el orden del viaje." />
+            {selectedDestinations.length > 0 && (
+              <View style={[styles.selectedRoute, { backgroundColor: t.secondarySoft }]}>
+                <View style={styles.selectedRouteHeading}>
+                  <View>
+                    <Body style={{ color: t.secondary, fontWeight: '900' }}>Tu ruta · {selectedDestinations.length} {selectedDestinations.length === 1 ? 'ciudad' : 'ciudades'}</Body>
+                    <Body style={{ color: t.secondary, fontSize: 12 }}>Podés cambiar el orden con las flechas.</Body>
+                  </View>
+                  <Ionicons name="git-branch-outline" size={22} color={t.secondary} />
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.routeCities}>
+                  {selectedDestinations.map((destination, index) => (
+                    <View key={destination.cityId} style={[styles.routeCity, { backgroundColor: t.surface }]}>
+                      <View style={[styles.routeIndex, { backgroundColor: t.primary }]}><Body style={styles.routeIndexText}>{index + 1}</Body></View>
+                      <View style={{ minWidth: 78 }}>
+                        <Body numberOfLines={1} style={{ fontWeight: '900', fontSize: 13 }}>{destination.cityName}</Body>
+                        <Body muted numberOfLines={1} style={{ fontSize: 10 }}>{destination.country}</Body>
+                      </View>
+                      <View style={styles.routeCityActions}>
+                        <Pressable accessibilityLabel={`Mover ${destination.cityName} antes`} disabled={index === 0} onPress={() => moveDestination(destination.cityId, -1)} hitSlop={8}>
+                          <Ionicons name="chevron-back" size={18} color={index === 0 ? t.border : t.textSecondary} />
+                        </Pressable>
+                        <Pressable accessibilityLabel={`Mover ${destination.cityName} después`} disabled={index === selectedDestinations.length - 1} onPress={() => moveDestination(destination.cityId, 1)} hitSlop={8}>
+                          <Ionicons name="chevron-forward" size={18} color={index === selectedDestinations.length - 1 ? t.border : t.textSecondary} />
+                        </Pressable>
+                      </View>
+                    </View>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
             <View style={[styles.search, { backgroundColor: t.surface, borderColor: t.border }]}>
               <Ionicons name="search" size={18} color={t.textSecondary} />
               <TextInput
@@ -299,46 +428,60 @@ export default function CrearScreen() {
                 style={{ flex: 1, color: t.text, fontSize: 15 }}
               />
             </View>
-            <View style={{ gap: Spacing.two }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.regionFilters}>
+              {REGIONS.map((item) => {
+                const active = region === item;
+                return (
+                  <Pressable
+                    key={item}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                    onPress={() => setRegion(item)}
+                    style={[styles.regionFilter, { backgroundColor: active ? t.text : t.surface, borderColor: active ? t.text : t.border }]}>
+                    <Body style={{ color: active ? t.surface : t.textSecondary, fontSize: 12, fontWeight: '800' }}>{item}</Body>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+            <View style={styles.cityGrid}>
               {filteredCities.map((c) => {
-                const sel = draft.cityId === c.id;
+                const selectedIndex = selectedDestinations.findIndex((destination) => destination.cityId === c.id);
+                const sel = selectedIndex >= 0;
                 return (
                   <Pressable
                     key={c.id}
                     accessibilityRole="button"
-                    accessibilityLabel={`Elegir ${c.name}, ${c.country}`}
+                    accessibilityLabel={`${sel ? 'Quitar' : 'Agregar'} ${c.name}, ${c.country}`}
                     accessibilityState={{ selected: sel }}
-                    onPress={() => {
-                      const changedCity = draft.cityId && draft.cityId !== c.id;
-                      setDraft({
-                        cityId: c.id,
-                        cityName: c.name,
-                        country: c.country,
-                        ...(changedCity
-                          ? { accommodation: null, accommodationChoice: undefined, mustSeeIds: [] }
-                          : {}),
-                      });
-                      void loadCityCatalog(c.id);
-                    }}>
-                    <View style={[styles.cityCard, { borderColor: sel ? t.primary : t.border, backgroundColor: t.surface }]}>
-                      <CityImage city={c} scrim={0.08} style={styles.cityThumb} />
-                      <View style={{ flex: 1 }}>
-                        <Body style={{ fontWeight: '700', fontSize: 16 }}>{c.name}</Body>
-                        <Body muted style={{ fontSize: 13 }}>
-                          {c.country}
-                        </Body>
+                    onPress={() => toggleDestination(c)}
+                    style={({ pressed }) => [styles.cityTilePressable, pressed && { transform: [{ scale: 0.985 }] }]}>
+                    <CityImage city={c} scrim={0.42} style={[styles.cityTile, sel ? { borderColor: t.primary, borderWidth: 3 } : undefined]}>
+                      <View style={styles.cityTileTop}>
+                        <View style={styles.catalogBadge}>
+                          <Ionicons name="compass-outline" size={13} color="#fff" />
+                          <Body style={styles.catalogBadgeText}>150+ planes</Body>
+                        </View>
+                        <View style={[styles.citySelectBadge, { backgroundColor: sel ? t.primary : 'rgba(255,255,255,0.92)' }]}>
+                          {sel ? <Body style={styles.citySelectNumber}>{selectedIndex + 1}</Body> : <Ionicons name="add" size={20} color={t.text} />}
+                        </View>
                       </View>
-                      {sel && <Ionicons name="checkmark-circle" size={24} color={t.primary} />}
-                    </View>
+                      <View style={{ marginTop: 'auto' }}>
+                        <Body style={styles.cityTileName}>{c.name}</Body>
+                        <Body style={styles.cityTileCountry}>{c.country} · {c.region}</Body>
+                      </View>
+                    </CityImage>
                   </Pressable>
                 );
               })}
               {filteredCities.length === 0 && (
                 <Body muted style={{ textAlign: 'center', paddingVertical: Spacing.four }}>
-                  Por ahora tenemos estas ciudades. ¡Vamos a sumar más!
+                  No encontramos una ciudad con ese nombre. Probá otro país o región.
                 </Body>
               )}
             </View>
+            {selectedDestinations.length >= MAX_DESTINATIONS && (
+              <Body muted style={{ textAlign: 'center', fontSize: 12 }}>Podés conectar hasta {MAX_DESTINATIONS} ciudades por viaje.</Body>
+            )}
           </>
         )}
 
@@ -349,7 +492,13 @@ export default function CrearScreen() {
             <Calendar
               start={draft.startDate}
               end={draft.endDate}
-              onChange={(s, e) => setDraft({ startDate: s, endDate: e })}
+              onChange={(s, e) => setDraft({
+                startDate: s,
+                endDate: e,
+                ...(s && e && daysInclusive(s, e) >= selectedDestinations.length
+                  ? { destinations: distributeDestinationDays(selectedDestinations, daysInclusive(s, e)) }
+                  : {}),
+              })}
             />
             {draft.startDate && draft.endDate && (
               <>
@@ -360,6 +509,40 @@ export default function CrearScreen() {
                     {daysInclusive(draft.startDate, draft.endDate)} días
                   </Body>
                 </Card>
+                {selectedDestinations.length > 1 && (
+                  <View style={[styles.dayAllocation, { backgroundColor: t.surface, borderColor: t.border }]}>
+                    <View style={styles.dayAllocationHeading}>
+                      <View style={{ flex: 1 }}>
+                        <Body style={{ fontWeight: '900' }}>Repartí los días de tu ruta</Body>
+                        <Body muted style={{ fontSize: 12 }}>Cada ciudad tendrá su propio recorrido. Vos decidís cuánto tiempo dedicarle.</Body>
+                      </View>
+                      <Ionicons name="trail-sign-outline" size={23} color={t.secondary} />
+                    </View>
+                    {daysInclusive(draft.startDate, draft.endDate) < selectedDestinations.length ? (
+                      <View style={[styles.dateRouteError, { backgroundColor: '#FEE4E2' }]}>
+                        <Ionicons name="alert-circle" size={19} color={t.error} />
+                        <Body style={{ flex: 1, color: t.error, fontSize: 12, fontWeight: '800' }}>Necesitás al menos un día por ciudad. Extendé las fechas o quitá destinos.</Body>
+                      </View>
+                    ) : selectedDestinations.map((destination, index) => (
+                      <View key={destination.cityId} style={styles.dayAllocationRow}>
+                        <View style={[styles.routeIndex, { backgroundColor: t.secondary }]}><Body style={styles.routeIndexText}>{index + 1}</Body></View>
+                        <View style={{ flex: 1 }}>
+                          <Body style={{ fontWeight: '800' }}>{destination.cityName}</Body>
+                          <Body muted style={{ fontSize: 11 }}>{destination.days === 1 ? '1 día' : `${destination.days} días`}</Body>
+                        </View>
+                        <View style={[styles.dayStepper, { backgroundColor: t.backgroundElement }]}>
+                          <Pressable accessibilityLabel={`Quitar un día a ${destination.cityName}`} disabled={destination.days <= 1} onPress={() => shiftDestinationDay(destination.cityId, -1)} style={styles.stepperButton}>
+                            <Ionicons name="remove" size={18} color={destination.days <= 1 ? t.border : t.text} />
+                          </Pressable>
+                          <Body style={{ minWidth: 22, textAlign: 'center', fontWeight: '900' }}>{destination.days}</Body>
+                          <Pressable accessibilityLabel={`Agregar un día a ${destination.cityName}`} onPress={() => shiftDestinationDay(destination.cityId, 1)} style={styles.stepperButton}>
+                            <Ionicons name="add" size={18} color={t.text} />
+                          </Pressable>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
                 <TravelBoundaryEditor kind="arrival" draft={draft} setDraft={setDraft} />
                 <TravelBoundaryEditor kind="departure" draft={draft} setDraft={setDraft} />
               </>
@@ -753,6 +936,29 @@ export default function CrearScreen() {
         {step === 6 && (
           <>
             <StepIntro icon="star-outline" title="¿Qué no te querés perder?" description="Buscá y marcá tus imprescindibles. Permanecerán protegidos al reorganizar el viaje." optional />
+            {selectedDestinations.length > 1 && (
+              <View style={{ gap: 7 }}>
+                <Label>Buscar en</Label>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mustCityTabs}>
+                  {selectedDestinations.map((destination, index) => {
+                    const selected = mustCityId === destination.cityId;
+                    return (
+                      <Pressable
+                        key={destination.cityId}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
+                        onPress={() => { setActiveMustCityId(destination.cityId); setMustQuery(''); }}
+                        style={[styles.mustCityTab, { backgroundColor: selected ? t.secondary : t.surface, borderColor: selected ? t.secondary : t.border }]}>
+                        <View style={[styles.mustCityIndex, { backgroundColor: selected ? 'rgba(255,255,255,0.2)' : t.secondarySoft }]}>
+                          <Body style={{ color: selected ? '#fff' : t.secondary, fontSize: 10, fontWeight: '900' }}>{index + 1}</Body>
+                        </View>
+                        <Body style={{ color: selected ? '#fff' : t.text, fontSize: 12, fontWeight: '800' }}>{destination.cityName}</Body>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
             <View style={[styles.intentComposer, { backgroundColor: t.surface, borderColor: t.border }]}>
               <View style={styles.intentHeading}>
                 <View style={[styles.intentIcon, { backgroundColor: t.primarySoft }]}>
@@ -823,13 +1029,13 @@ export default function CrearScreen() {
               <View style={styles.searchResultsBlock}>
                 <View style={styles.resultsHeading}>
                   <View>
-                    <Label>RESULTADOS EN {draft.cityName?.toLocaleUpperCase()}</Label>
+                    <Label>RESULTADOS EN {cityById(mustCityId ?? '')?.name.toLocaleUpperCase()}</Label>
                     <Body muted style={{ fontSize: 12 }}>Catálogo Rumbo + búsqueda global</Body>
                   </View>
                   {placeSearchState === 'loading' && <ActivityIndicator size="small" color={t.primary} />}
                 </View>
                 {remotePlaces
-                  .filter((place) => !cityPlaces.some((candidate) => candidate.name.trim().toLocaleLowerCase() === place.name.trim().toLocaleLowerCase()))
+                  .filter((place) => !mustCityPlaces.some((candidate) => candidate.name.trim().toLocaleLowerCase() === place.name.trim().toLocaleLowerCase()))
                   .map((place) => (
                     <Pressable
                       key={place.id}
@@ -868,7 +1074,7 @@ export default function CrearScreen() {
                 <Body style={{ fontWeight: '900' }}>{draft.mustSeeIds.length} seleccionados</Body>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 7 }}>
                   {draft.mustSeeIds.map((id) => {
-                    const place = cityPlaces.find((candidate) => candidate.id === id);
+                    const place = placeById(id);
                     if (!place) return null;
                     return (
                     <Pressable
@@ -992,6 +1198,7 @@ export default function CrearScreen() {
                   onPress={() => {
                     addManualMustSee({
                       name: manualName,
+                      cityId: mustCityId,
                       address: manualReference.startsWith('http') ? undefined : manualReference,
                       url: manualReference.startsWith('http') ? manualReference : undefined,
                     });
@@ -1216,9 +1423,15 @@ function ReviewStep({ onEdit }: { onEdit: (step: number) => void }) {
   const draft = useStore((s) => s.draft);
   const city = draft.cityId ? cityById(draft.cityId) : undefined;
   const duration = draft.startDate && draft.endDate ? daysInclusive(draft.startDate, draft.endDate) : 0;
+  const destinations = draft.destinations?.length
+    ? draft.destinations.slice().sort((a, b) => a.order - b.order)
+    : draft.cityId && draft.cityName && draft.country
+      ? [{ cityId: draft.cityId, cityName: draft.cityName, country: draft.country, days: duration, order: 0 }]
+      : [];
   const pace = PACES.find((item) => item.id === draft.pace)?.label ?? '';
   const budget = BUDGETS.find((item) => item.id === draft.budget)?.label ?? '';
   const rows: { step: number; icon: keyof typeof Ionicons.glyphMap; label: string; value: string }[] = [
+    { step: 0, icon: 'trail-sign-outline', label: 'Ruta', value: destinations.map((destination) => `${destination.cityName} · ${destination.days}d`).join('  →  ') },
     { step: 2, icon: 'bed-outline', label: 'Tu base', value: draft.accommodation?.name ?? (draft.accommodationChoice === 'no' ? 'Todavía sin decidir' : 'La agregarás después') },
     { step: 4, icon: 'people-outline', label: 'Viajeros', value: `${draft.partySize ?? 1} · ${draft.groupType ?? 'grupo'} · desde ${formatTime(draft.dayStartMin ?? 9 * 60)}` },
     { step: 5, icon: 'wallet-outline', label: 'Presupuesto', value: `${budget} · por persona y por día` },
@@ -1245,7 +1458,7 @@ function ReviewStep({ onEdit }: { onEdit: (step: number) => void }) {
           </Pressable>
         </View>
         <View style={{ marginTop: 'auto' }}>
-          <Body style={styles.reviewCity}>{draft.cityName}</Body>
+          <Body style={styles.reviewCity}>{destinations.map((destination) => destination.cityName).join(' → ')}</Body>
           <Body style={styles.reviewDates}>
             {draft.startDate && draft.endDate ? fmtRange(draft.startDate, draft.endDate) : ''} · {duration} días
           </Body>
@@ -1362,6 +1575,9 @@ const styles = StyleSheet.create({
     borderRadius: Radius.md,
   },
   selectedMust: { gap: 8 },
+  mustCityTabs: { gap: 7, paddingRight: Spacing.three },
+  mustCityTab: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 11, borderWidth: 1, borderRadius: Radius.pill },
+  mustCityIndex: { width: 23, height: 23, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   selectedPlace: { minHeight: 38, flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: Radius.pill, paddingHorizontal: 11 },
   manualToggle: { minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: 11, paddingHorizontal: Spacing.three, borderWidth: 1, borderRadius: Radius.md },
   manualForm: { gap: Spacing.two, borderWidth: 1, borderRadius: Radius.md, padding: Spacing.three },
@@ -1371,6 +1587,31 @@ const styles = StyleSheet.create({
   budgetRange: { paddingHorizontal: 9, paddingVertical: 5, borderRadius: Radius.pill },
   budgetNotice: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: Spacing.three, borderRadius: Radius.md },
   search: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, borderWidth: 1, borderRadius: Radius.pill, paddingHorizontal: Spacing.three, paddingVertical: 12 },
+  selectedRoute: { borderRadius: Radius.lg, padding: 14, gap: 12 },
+  selectedRouteHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  routeCities: { gap: 8, paddingRight: 4 },
+  routeCity: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 9, borderRadius: Radius.md },
+  routeIndex: { width: 25, height: 25, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  routeIndexText: { color: '#fff', fontSize: 11, fontWeight: '900' },
+  routeCityActions: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  regionFilters: { gap: 7, paddingRight: Spacing.three },
+  regionFilter: { minHeight: 40, justifyContent: 'center', paddingHorizontal: 13, borderWidth: 1, borderRadius: Radius.pill },
+  cityGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  cityTilePressable: { width: '48%', flexGrow: 1, minWidth: 145 },
+  cityTile: { height: 154, borderRadius: Radius.lg, padding: 12, overflow: 'hidden' },
+  cityTileTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  catalogBadge: { minHeight: 29, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, borderRadius: Radius.pill, backgroundColor: 'rgba(0,0,0,0.44)' },
+  catalogBadgeText: { color: '#fff', fontSize: 10, fontWeight: '900' },
+  citySelectBadge: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  citySelectNumber: { color: '#fff', fontSize: 13, fontWeight: '900' },
+  cityTileName: { color: '#fff', fontSize: 20, lineHeight: 24, fontWeight: '900' },
+  cityTileCountry: { color: 'rgba(255,255,255,0.9)', fontSize: 11, fontWeight: '700' },
+  dayAllocation: { borderWidth: 1, borderRadius: Radius.lg, padding: 14, gap: 5 },
+  dayAllocationHeading: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 8 },
+  dayAllocationRow: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  dayStepper: { minHeight: 40, flexDirection: 'row', alignItems: 'center', borderRadius: Radius.pill, paddingHorizontal: 3 },
+  stepperButton: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
+  dateRouteError: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 9, padding: 11, borderRadius: Radius.md },
   cityCard: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three, borderWidth: 1.5, borderRadius: Radius.lg, padding: Spacing.two, paddingRight: Spacing.three },
   cityThumb: { width: 56, height: 56, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
   rangeInfo: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },

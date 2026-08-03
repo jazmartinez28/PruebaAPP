@@ -49,6 +49,14 @@ const PRIMARY_TABS = [
   { id: 'mapa', label: 'Mapa', icon: 'map-outline' },
   { id: 'more', label: 'Más', icon: 'ellipsis-horizontal-circle-outline' },
 ] as const;
+const INTERCITY_MODE_LABEL = {
+  flight: 'Avión',
+  train: 'Tren',
+  bus: 'Bus',
+  car: 'Auto',
+  ferry: 'Ferry',
+  unknown: 'Traslado por definir',
+} as const;
 
 export default function TripScreen() {
   const { id, tab: initialTab, action } = useLocalSearchParams<{
@@ -85,17 +93,20 @@ export default function TripScreen() {
   const deleteTrip = useStore((s) => s.deleteTrip);
   const loadCityCatalog = useStore((s) => s.loadCityCatalog);
   const loadTripEvents = useStore((s) => s.loadTripEvents);
-  const catalogCityId = trip?.cityId;
+  const catalogCityIds = (trip?.destinations?.length
+    ? trip.destinations.slice().sort((a, b) => a.order - b.order).map((destination) => destination.cityId)
+    : trip?.cityId ? [trip.cityId] : []).join(',');
   const catalogStartDate = trip?.startDate;
   const catalogEndDate = trip?.endDate;
 
   useEffect(() => {
-    if (!catalogCityId || !catalogStartDate || !catalogEndDate) return;
+    if (!catalogCityIds || !catalogStartDate || !catalogEndDate) return;
+    const cityIds = catalogCityIds.split(',').filter(Boolean);
     void (async () => {
-      await loadCityCatalog(catalogCityId);
-      await loadTripEvents(catalogCityId, catalogStartDate, catalogEndDate);
+      await Promise.all(cityIds.map((cityId) => loadCityCatalog(cityId)));
+      await Promise.all(cityIds.map((cityId) => loadTripEvents(cityId, catalogStartDate, catalogEndDate)));
     })();
-  }, [catalogCityId, catalogEndDate, catalogStartDate, loadCityCatalog, loadTripEvents]);
+  }, [catalogCityIds, catalogEndDate, catalogStartDate, loadCityCatalog, loadTripEvents]);
 
   if (!trip) {
     return (
@@ -107,6 +118,10 @@ export default function TripScreen() {
   }
 
   const city = cityById(trip.cityId);
+  const tripDestinations = trip.destinations?.length
+    ? trip.destinations.slice().sort((a, b) => a.order - b.order)
+    : [{ cityId: trip.cityId, cityName: trip.cityName, country: trip.country, days: trip.days.length, order: 0 }];
+  const tripTitle = tripDestinations.map((destination) => destination.cityName).join(' → ');
   const status = tripStatusOf(trip);
   const stats = tripStats(trip.days);
 
@@ -129,7 +144,7 @@ export default function TripScreen() {
           </View>
           <View style={{ paddingHorizontal: Spacing.three, paddingBottom: Spacing.three }}>
             <Ionicons name="location-outline" size={34} color="#FFFFFF" />
-            <Body style={styles.headerTitle}>{trip.cityName}</Body>
+            <Body numberOfLines={2} style={styles.headerTitle}>{tripTitle}</Body>
             <View style={styles.headerMeta}>
               <View style={styles.metaChip}>
                 <Ionicons name="calendar" size={13} color="#fff" />
@@ -264,7 +279,7 @@ export default function TripScreen() {
       />
       <ShareSheet trip={trip} visible={share} onClose={() => setShare(false)} onToast={showToast} />
       <TransportSheet
-        cityId={trip.cityId}
+        cityId={transportLeg?.from.cityId ?? trip.cityId}
         leg={transportLeg}
         onClose={() => setTransportLeg(null)}
       />
@@ -416,10 +431,15 @@ function ItinerarioTab({
   const t = useTheme();
   const moveWithinDay = useStore((s) => s.moveActivityWithinDay);
   const d = trip.days[day];
-  const hotelPlace: Place | null = trip.accommodation
+  const dayCityId = d?.cityId ?? trip.cityId;
+  const previousCityId = day > 0 ? trip.days[day - 1]?.cityId ?? trip.cityId : undefined;
+  const cityTransition = previousCityId && previousCityId !== dayCityId
+    ? (trip.intercityLegs ?? []).find((leg) => leg.fromCityId === previousCityId && leg.toCityId === dayCityId)
+    : undefined;
+  const hotelPlace: Place | null = trip.accommodation && dayCityId === trip.cityId
     ? {
         id: 'accommodation',
-        cityId: trip.cityId,
+        cityId: dayCityId,
         name: trip.accommodation.name,
         categories: ['local'],
         lat: trip.accommodation.lat,
@@ -445,10 +465,21 @@ function ItinerarioTab({
         </Card>
       ) : (
         <>
+          {previousCityId && previousCityId !== dayCityId && (
+            <View style={[styles.cityTransition, { backgroundColor: t.secondarySoft }]}>
+              <View style={[styles.cityTransitionIcon, { backgroundColor: t.secondary }]}>
+                <Ionicons name={cityTransition?.mode === 'flight' ? 'airplane' : cityTransition?.mode === 'train' ? 'train' : 'trail-sign'} size={21} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Body style={{ color: t.secondary, fontWeight: '900' }}>{cityById(previousCityId)?.name} → {cityById(dayCityId)?.name}</Body>
+                <Body style={{ color: t.secondary, fontSize: 12 }}>{INTERCITY_MODE_LABEL[cityTransition?.mode ?? 'unknown']} · este día comienza en una nueva ciudad</Body>
+              </View>
+            </View>
+          )}
           <DayHeader
             day={d}
             index={day}
-            accommodation={trip.accommodation}
+            accommodation={dayCityId === trip.cityId ? trip.accommodation : null}
             onEditStart={() => onEditDayStart(day)}
           />
           <View style={styles.timelineHeading}>
@@ -470,7 +501,7 @@ function ItinerarioTab({
               <>
                 <AccommodationTimelineRow accommodation={trip.accommodation!} label="Salida desde tu alojamiento" />
                 <TransportTimelineRow
-                  cityId={trip.cityId}
+                  cityId={dayCityId}
                   from={hotelPlace}
                   to={placeById(d.activities[0].placeId)!}
                   onPress={() => onTransport(hotelPlace, placeById(d.activities[0].placeId)!)}
@@ -512,12 +543,12 @@ function ItinerarioTab({
                       </View>
                       <View style={[styles.legPill, { backgroundColor: t.secondarySoft }]}>
                         <Ionicons
-                          name={recommendedTransport(trip.cityId, p, placeById(next.placeId)!).icon}
+                          name={recommendedTransport(dayCityId, p, placeById(next.placeId)!).icon}
                           size={14}
                           color={t.secondary}
                         />
                         <Body style={{ fontSize: 12, color: t.secondary, fontWeight: '700' }}>
-                          {recommendedTransport(trip.cityId, p, placeById(next.placeId)!).label} · {leg.label}
+                          {recommendedTransport(dayCityId, p, placeById(next.placeId)!).label} · {leg.label}
                         </Body>
                         <Ionicons name="chevron-forward" size={13} color={t.secondary} />
                       </View>
@@ -529,7 +560,7 @@ function ItinerarioTab({
             {hotelPlace && d.activities.length > 0 && (
               <>
                 <TransportTimelineRow
-                  cityId={trip.cityId}
+                  cityId={dayCityId}
                   from={placeById(d.activities[d.activities.length - 1].placeId)!}
                   to={hotelPlace}
                   onPress={() => onTransport(placeById(d.activities[d.activities.length - 1].placeId)!, hotelPlace)}
@@ -679,7 +710,7 @@ function DayHeader({
     <Card style={styles.dayCommand}>
       <View style={styles.dayHeadingRow}>
         <View style={{ flex: 1, gap: 3 }}>
-          <Label style={{ color: t.secondary }}>Día {index + 1} · {day.zone}</Label>
+          <Label style={{ color: t.secondary }}>Día {index + 1} · {day.cityName ? `${day.cityName} · ` : ''}{day.zone}</Label>
           <Body style={{ fontWeight: '800', fontSize: 18 }}>{fmtDate(day.date)}</Body>
         </View>
         <Pressable
@@ -898,11 +929,11 @@ function MapaTab({ trip, day, setDay, onActivity, onPlan }: { trip: Trip; day: n
       <DaySelector trip={trip} day={day} setDay={(x) => { setDay(x); setSel(undefined); }} />
       <ViewModeSwitch mode="map" onPlan={onPlan} onMap={() => {}} />
       <View style={[styles.mapStage, { height: mapHeight, backgroundColor: t.secondarySoft }]}>
-        <RouteMap stops={stops} accommodation={trip.accommodation} selectedId={sel} onSelect={setSel} height={mapHeight} />
+        <RouteMap stops={stops} accommodation={(d?.cityId ?? trip.cityId) === trip.cityId ? trip.accommodation : null} selectedId={sel} onSelect={setSel} height={mapHeight} />
         <View style={styles.mapTopBar} pointerEvents="box-none">
           <View style={styles.mapRouteBadge}>
             <Ionicons name="navigate" size={15} color={t.secondary} />
-            <Body style={{ color: t.secondary, fontWeight: '900', fontSize: 12 }}>{stops.length} paradas · {d?.zone || trip.cityName}</Body>
+            <Body style={{ color: t.secondary, fontWeight: '900', fontSize: 12 }}>{stops.length} paradas · {d?.cityName ? `${d.cityName} · ` : ''}{d?.zone || trip.cityName}</Body>
           </View>
         </View>
         {selectedActivity && selectedPlace && (
@@ -1540,7 +1571,8 @@ function AddSheet({ trip, dayIndex, onClose, onDone }: { trip: Trip; dayIndex: n
   const t = useTheme();
   const add = useStore((s) => s.addActivity);
   const usedIds = new Set(trip.days.flatMap((d) => d.activities.map((a) => a.placeId)));
-  const available = placesByCity(trip.cityId).filter((p) => !usedIds.has(p.id));
+  const targetCityId = dayIndex === null ? trip.cityId : trip.days[dayIndex]?.cityId ?? trip.cityId;
+  const available = placesByCity(targetCityId).filter((p) => !usedIds.has(p.id));
 
   return (
     <Sheet visible={dayIndex !== null} onClose={onClose} title={`Agregar al Día ${(dayIndex ?? 0) + 1}`}>
@@ -1681,7 +1713,9 @@ function DaySelector({ trip, day, setDay }: { trip: Trip; day: number; setDay: (
         return (
           <Pressable key={i} onPress={() => setDay(i)} style={[styles.dayPill, { backgroundColor: on ? t.primary : t.surface, borderColor: on ? t.primary : t.border }]}>
             <Body style={{ color: on ? '#fff' : t.text, fontWeight: '700', fontSize: 13 }}>Día {i + 1}</Body>
-            <Body style={{ color: on ? 'rgba(255,255,255,0.85)' : t.textSecondary, fontSize: 11 }}>{fmtDate(d.date).split(' ').slice(1).join(' ')}</Body>
+            <Body style={{ color: on ? 'rgba(255,255,255,0.85)' : t.textSecondary, fontSize: 11 }}>
+              {d.cityName ? `${d.cityName} · ` : ''}{fmtDate(d.date).split(' ').slice(1).join(' ')}
+            </Body>
           </Pressable>
         );
       })}
@@ -1850,6 +1884,8 @@ const styles = StyleSheet.create({
   nextStopIcon: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   mapRouteButton: { minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
   timelineHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: Spacing.one },
+  cityTransition: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 11, padding: 13, borderRadius: Radius.md },
+  cityTransitionIcon: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   timelineBody: { position: 'relative', gap: 2 },
   timelineRail: { position: 'absolute', left: 70, top: 8, bottom: 8, width: 2, borderRadius: Radius.pill },
   toast: { position: 'absolute', left: 16, right: 16, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 14, borderRadius: Radius.md },

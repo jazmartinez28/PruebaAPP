@@ -18,7 +18,7 @@ export function PackingList({ trip }: { trip: Trip }) {
   const [label, setLabel] = useState('');
   const [category, setCategory] = useState<PackingCategory>('ropa');
   const [editing, setEditing] = useState<string | null>(null);
-  const items = trip.packingItems ?? [];
+  const items = useMemo(() => trip.packingItems ?? [], [trip.packingItems]);
   const packed = items.filter((item) => item.packed).length;
   const progress = items.length ? packed / items.length : 0;
   const climate = seasonalClimateLabel(trip);

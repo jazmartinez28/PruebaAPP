@@ -4,10 +4,32 @@ import { useEffect, useState } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { Body } from '@/components/ui';
-import { cityById } from '@/data/cities';
 import { categoryVisualFor } from '@/lib/category-style';
 import { resolvePlaceImage } from '@/lib/place-images';
 import type { Place } from '@/types';
+
+const PHOTO = (id: string) => `https://images.unsplash.com/photo-${id}?auto=format&fit=crop&w=1200&q=78`;
+const CATEGORY_PHOTOS = {
+  gastronomia: PHOTO('1414235077428-338989a2e8c0'),
+  cultura: PHOTO('1561214115-f2f134cc4912'),
+  arquitectura: PHOTO('1487958449943-2429e8be8625'),
+  naturaleza: PHOTO('1500530855697-b586d89ba3ee'),
+  compras: PHOTO('1441986300917-64674bd600d8'),
+  noche: PHOTO('1514525253161-7a46d19cd819'),
+  deportes: PHOTO('1461896836934-ffe607ba8211'),
+  local: PHOTO('1477959858617-67f85cf4f1df'),
+} as const;
+
+function categoryPhotoFor(place: Place) {
+  if (place.isMeal || place.categories.includes('gastronomia')) return CATEGORY_PHOTOS.gastronomia;
+  if (place.categories.some((category) => ['museos', 'arte', 'musica'].includes(category))) return CATEGORY_PHOTOS.cultura;
+  if (place.categories.some((category) => ['arquitectura', 'historia', 'iconico'].includes(category))) return CATEGORY_PHOTOS.arquitectura;
+  if (place.categories.some((category) => ['parques', 'naturaleza', 'fotografia'].includes(category))) return CATEGORY_PHOTOS.naturaleza;
+  if (place.categories.includes('compras')) return CATEGORY_PHOTOS.compras;
+  if (place.categories.includes('vidanocturna')) return CATEGORY_PHOTOS.noche;
+  if (place.categories.includes('deportes')) return CATEGORY_PHOTOS.deportes;
+  return CATEGORY_PHOTOS.local;
+}
 
 export function PlaceImage({
   place,
@@ -19,7 +41,6 @@ export function PlaceImage({
   compact?: boolean;
 }) {
   const visual = categoryVisualFor(place);
-  const city = cityById(place.cityId);
   const [resolvedUri, setResolvedUri] = useState<string | null>(null);
   const [failedUris, setFailedUris] = useState<string[]>([]);
 
@@ -44,7 +65,7 @@ export function PlaceImage({
     return () => { active = false; };
   }, [failedUris, place, resolvedUri]);
 
-  const sourceUri = [place.imageUrl, resolvedUri, city?.image].find((uri) => uri && !failedUris.includes(uri));
+  const sourceUri = [place.imageUrl, resolvedUri, categoryPhotoFor(place)].find((uri) => uri && !failedUris.includes(uri));
 
   if (sourceUri) {
     return (

@@ -11,6 +11,9 @@ type WikiPage = {
 };
 
 type WikiResponse = { query?: { pages?: Record<string, WikiPage> } };
+type WikidataResponse = {
+  entities?: Record<string, { claims?: { P18?: { mainsnak?: { datavalue?: { value?: string } } }[] } }>;
+};
 
 const CACHE_PREFIX = '@rumbo/place-image/v2/';
 const memory = new Map<string, string>();
@@ -88,7 +91,34 @@ async function requestWikipedia(place: Place, language: string, exactTitle?: str
   return best.thumbnail.source;
 }
 
+async function requestWikidataImage(entityId: string) {
+  const params = new URLSearchParams({
+    action: 'wbgetentities',
+    ids: entityId,
+    props: 'claims',
+    format: 'json',
+    origin: '*',
+  });
+  const response = await fetch(`https://www.wikidata.org/w/api.php?${params.toString()}`, {
+    headers: { Accept: 'application/json' },
+  });
+  if (!response.ok) return null;
+  const payload = (await response.json()) as WikidataResponse;
+  const fileName = payload.entities?.[entityId]?.claims?.P18?.[0]?.mainsnak?.datavalue?.value;
+  return fileName
+    ? `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(fileName)}?width=1200`
+    : null;
+}
+
 async function resolveUncached(place: Place) {
+  if (place.wikidata) {
+    try {
+      const wikidataImage = await withRequestSlot(() => requestWikidataImage(place.wikidata!));
+      if (wikidataImage) return wikidataImage;
+    } catch {
+      // Continuamos con Wikipedia y luego con el fallback visual de categoría.
+    }
+  }
   const wiki = place.wikipedia?.match(/^([a-z-]+):(.+)$/i);
   const attempts: { language: string; title?: string }[] = wiki
     ? [{ language: wiki[1], title: wiki[2] }, { language: 'es' }, { language: 'en' }]

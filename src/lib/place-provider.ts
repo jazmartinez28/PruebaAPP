@@ -182,7 +182,7 @@ async function requestOverpass(query: string): Promise<OverpassResponse> {
 }
 
 export async function fetchCityPlaces(city: City, limit = 360): Promise<Place[]> {
-  const radius = 12000;
+  const radius = 18000;
   const latDelta = radius / 111320;
   const lngDelta = radius / (111320 * Math.cos((city.lat * Math.PI) / 180));
   const bounds = `${city.lat - latDelta},${city.lng - lngDelta},${city.lat + latDelta},${city.lng + lngDelta}`;
@@ -251,6 +251,7 @@ export async function fetchCityPlaces(city: City, limit = 360): Promise<Place[]>
         bookingUrl: tags['contact:booking'] || officialUrl,
         imageUrl: imageOf(tags),
         wikipedia: tags.wikipedia,
+        wikidata: tags.wikidata,
         source: 'openstreetmap',
         sourceUrl: `https://www.openstreetmap.org/${element.type}/${element.id}`,
       };

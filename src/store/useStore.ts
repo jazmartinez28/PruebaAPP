@@ -6,10 +6,11 @@ import { REMOTE_CONFIG } from '@/constants/config';
 import { cityById } from '@/data/cities';
 import { mergeRuntimePlaces, placeById, setRuntimePlaces } from '@/data/places';
 import { generateItinerary } from '@/lib/generate';
+import { daysInclusive } from '@/lib/dates';
 import { fetchTripEvents } from '@/lib/events';
 import { fetchCityPlaces } from '@/lib/place-provider';
 import { rescheduleDay } from '@/lib/trip';
-import type { Accommodation, AppPreferences, Budget, Category, Draft, Pace, PackingCategory, Place, Ticket, Trip, User } from '@/types';
+import type { Accommodation, AppPreferences, Budget, Category, Draft, IntercityLeg, Pace, PackingCategory, Place, Ticket, Trip, User } from '@/types';
 
 const emptyDraft = (): Draft => ({
   accommodation: null,
@@ -74,7 +75,7 @@ type State = {
   setAccommodation: (a: Accommodation) => void;
   loadCityCatalog: (cityId: string) => Promise<{ count: number; error?: string }>;
   loadTripEvents: (cityId: string, startDate: string, endDate: string) => Promise<{ count: number; error?: string }>;
-  addManualMustSee: (input: { name: string; address?: string; url?: string }) => void;
+  addManualMustSee: (input: { name: string; address?: string; url?: string; cityId?: string }) => void;
   addSearchedMustSee: (place: Place) => void;
 
   // trips
@@ -83,6 +84,7 @@ type State = {
   deleteTrip: (tripId: string) => void;
   toggleSaved: (tripId: string, placeId: string) => void;
   updateTripAccommodation: (tripId: string, accommodation: Accommodation) => void;
+  updateIntercityLeg: (tripId: string, legId: string, patch: Partial<Pick<IntercityLeg, 'mode' | 'status' | 'departureAt' | 'arrivalAt' | 'provider' | 'reference'>>) => void;
   setDayStart: (tripId: string, dayIndex: number, startMin: number) => void;
   addTicket: (tripId: string, ticket: Omit<Ticket, 'id' | 'createdAt'>) => void;
   removeTicket: (tripId: string, ticketId: string) => void;
@@ -288,8 +290,10 @@ export const useStore = create<State>()(
       },
       addManualMustSee: (input) =>
         set((s) => {
-          if (!s.draft.cityId || !input.name.trim()) return {};
-          const city = cityById(s.draft.cityId);
+          const selectedCityId = input.cityId ?? s.draft.cityId;
+          const allowedCityIds = new Set((s.draft.destinations ?? []).map((destination) => destination.cityId));
+          if (!selectedCityId || (allowedCityIds.size && !allowedCityIds.has(selectedCityId)) || !input.name.trim()) return {};
+          const city = cityById(selectedCityId);
           if (!city) return {};
           const coordinates = input.url?.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
           const parsedLat = coordinates ? Number(coordinates[1]) : undefined;
@@ -334,7 +338,8 @@ export const useStore = create<State>()(
 
       addSearchedMustSee: (place) =>
         set((state) => {
-          if (!state.draft.cityId || place.cityId !== state.draft.cityId) return {};
+          const allowedCityIds = new Set((state.draft.destinations ?? []).map((destination) => destination.cityId));
+          if (!state.draft.cityId || (allowedCityIds.size ? !allowedCityIds.has(place.cityId) : place.cityId !== state.draft.cityId)) return {};
           const normalized = place.name.trim().toLocaleLowerCase();
           const duplicate = state.externalPlaces.find(
             (candidate) =>
@@ -358,7 +363,18 @@ export const useStore = create<State>()(
 
       createTripFromDraft: () => {
         const { draft, trips, user } = get();
-        const city = cityById(draft.cityId!);
+        const destinations = draft.destinations?.length
+          ? draft.destinations.slice().sort((a, b) => a.order - b.order)
+          : draft.cityId && draft.cityName && draft.country
+            ? [{
+                cityId: draft.cityId,
+                cityName: draft.cityName,
+                country: draft.country,
+                days: draft.startDate && draft.endDate ? daysInclusive(draft.startDate, draft.endDate) : 1,
+                order: 0,
+              }]
+            : [];
+        const city = cityById(destinations[0]?.cityId ?? draft.cityId!);
         const accommodationComplete =
           Boolean(draft.accommodationChoice) &&
           (draft.accommodationChoice !== 'yes' || Boolean(draft.accommodation));
@@ -368,6 +384,7 @@ export const useStore = create<State>()(
           draft.dayStartMin != null;
         if (
           !city ||
+          !destinations.length ||
           !draft.startDate ||
           !draft.endDate ||
           !accommodationComplete ||
@@ -388,6 +405,14 @@ export const useStore = create<State>()(
           cityId: city.id,
           cityName: city.name,
           country: city.country,
+          destinations,
+          intercityLegs: destinations.slice(0, -1).map((destination, index) => ({
+            id: newId('leg'),
+            fromCityId: destination.cityId,
+            toCityId: destinations[index + 1].cityId,
+            mode: 'unknown',
+            status: 'pending',
+          })),
           startDate: draft.startDate,
           endDate: draft.endDate,
           accommodation: draft.accommodation,
@@ -430,7 +455,7 @@ export const useStore = create<State>()(
           _undo: snapOf(s, tripId),
           trips: s.trips.map((t) =>
             t.id === tripId
-              ? touch({ ...t, days: generateItinerary({ ...t, cityId: t.cityId } as Draft) })
+              ? touch({ ...t, days: generateItinerary({ ...t, cityId: t.cityId, destinations: t.destinations } as Draft) })
               : t,
           ),
         })),
@@ -455,6 +480,15 @@ export const useStore = create<State>()(
           trips: s.trips.map((trip) =>
             trip.id === tripId ? touch({ ...trip, accommodation }) : trip,
           ),
+        })),
+      updateIntercityLeg: (tripId, legId, patch) =>
+        set((s) => ({
+          trips: s.trips.map((trip) => trip.id === tripId
+            ? touch({
+                ...trip,
+                intercityLegs: (trip.intercityLegs ?? []).map((leg) => leg.id === legId ? { ...leg, ...patch } : leg),
+              })
+            : trip),
         })),
       setDayStart: (tripId, dayIndex, startMin) =>
         set((state) => ({
@@ -599,6 +633,9 @@ export const useStore = create<State>()(
           _undo: snapOf(s, tripId),
           trips: s.trips.map((t) => {
             if (t.id !== tripId) return t;
+            const sourceDay = t.days.find((day) => day.activities.some((activity) => activity.id === activityId));
+            const targetDay = t.days[toDayIndex];
+            if (!sourceDay || !targetDay || (sourceDay.cityId ?? t.cityId) !== (targetDay.cityId ?? t.cityId)) return t;
             let moved: (typeof t.days)[number]['activities'][number] | undefined;
             let days = t.days.map((d) => {
               const found = d.activities.find((a) => a.id === activityId);

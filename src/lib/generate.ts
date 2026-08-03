@@ -3,7 +3,7 @@ import { placeById, placesByCity } from '@/data/places';
 import { addDays, daysInclusive, weekday } from '@/lib/dates';
 import { centroid, distanceM, legBetween, placePt } from '@/lib/geo';
 import { DEFAULT_DAY_START, optimizeRoute, scheduleActivities } from '@/lib/schedule';
-import type { Activity, Day, Draft, Place } from '@/types';
+import type { Activity, Day, Draft, Place, TripDestination } from '@/types';
 
 const LUNCH_FROM = 12 * 60 + 30;
 const DINNER_MIN = 20 * 60;
@@ -66,7 +66,7 @@ function popularityOf(place: Place) {
 }
 
 /** Genera el itinerario completo a partir del borrador. */
-export function generateItinerary(draft: Draft): Day[] {
+function generateSingleCityItinerary(draft: Draft): Day[] {
   if (!draft.cityId || !draft.startDate || !draft.endDate) return [];
 
   const numDays = daysInclusive(draft.startDate, draft.endDate);
@@ -242,7 +242,15 @@ export function generateItinerary(draft: Draft): Day[] {
     const date = addDays(start, dayIdx);
     const dayStart = dayStartFor(dayIdx);
     const dayEnd = dayEndFor(dayIdx);
-    if (!group.length) return { date, zone: '', startMin: dayStart, activities: [] };
+    if (!group.length) return {
+      date,
+      cityId: draft.cityId,
+      cityName: draft.cityName,
+      country: draft.country,
+      zone: '',
+      startMin: dayStart,
+      activities: [],
+    };
 
     // 1) Ruta óptima: arranca en el alojamiento y evita cruzar la ciudad (2-opt)
     const routePlaces = group.filter((place) => place.kind !== 'event');
@@ -324,7 +332,79 @@ export function generateItinerary(draft: Draft): Day[] {
     group.forEach((p) => (zones[p.zone] = (zones[p.zone] ?? 0) + 1));
     const zone = Object.entries(zones).sort((a, b) => b[1] - a[1])[0]?.[0] ?? group[0].zone;
 
-    return { date, zone, startMin: dayStart, activities };
+    return {
+      date,
+      cityId: draft.cityId,
+      cityName: draft.cityName,
+      country: draft.country,
+      zone,
+      startMin: dayStart,
+      activities,
+    };
+  });
+}
+
+function normalizeDestinationDays(destinations: TripDestination[], totalDays: number) {
+  const safe = destinations
+    .slice()
+    .sort((a, b) => a.order - b.order)
+    .map((destination) => ({ ...destination, days: Math.max(1, Math.round(destination.days || 1)) }));
+  if (!safe.length) return safe;
+
+  let assigned = safe.reduce((sum, destination) => sum + destination.days, 0);
+  while (assigned < totalDays) {
+    const target = safe.reduce((best, destination) => destination.days < best.days ? destination : best, safe[0]);
+    target.days += 1;
+    assigned += 1;
+  }
+  while (assigned > totalDays) {
+    const target = safe.reduce((best, destination) => destination.days > best.days ? destination : best, safe[0]);
+    if (target.days <= 1) break;
+    target.days -= 1;
+    assigned -= 1;
+  }
+  return safe;
+}
+
+/** Genera uno o varios tramos de ciudad respetando la ruta elegida por el viajero. */
+export function generateItinerary(draft: Draft): Day[] {
+  if (!draft.cityId || !draft.startDate || !draft.endDate) return [];
+  const totalDays = daysInclusive(draft.startDate, draft.endDate);
+  const requested = draft.destinations?.length
+    ? draft.destinations
+    : [{
+        cityId: draft.cityId,
+        cityName: draft.cityName ?? '',
+        country: draft.country ?? '',
+        days: totalDays,
+        order: 0,
+      }];
+  const destinations = normalizeDestinationDays(requested, totalDays);
+  if (destinations.length > totalDays) return [];
+
+  let offset = 0;
+  return destinations.flatMap((destination, index) => {
+    const segmentStart = addDays(draft.startDate!, offset);
+    const segmentEnd = addDays(segmentStart, destination.days - 1);
+    const segment = generateSingleCityItinerary({
+      ...draft,
+      cityId: destination.cityId,
+      cityName: destination.cityName,
+      country: destination.country,
+      startDate: segmentStart,
+      endDate: segmentEnd,
+      accommodation: index === 0 ? draft.accommodation : null,
+      mustSeeIds: draft.mustSeeIds.filter((id) => placeById(id)?.cityId === destination.cityId),
+      arrivalTime: index === 0 ? draft.arrivalTime : undefined,
+      departureTime: index === destinations.length - 1 ? draft.departureTime : undefined,
+    });
+    offset += destination.days;
+    return segment.map((day) => ({
+      ...day,
+      cityId: destination.cityId,
+      cityName: destination.cityName,
+      country: destination.country,
+    }));
   });
 }
 

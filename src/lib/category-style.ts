@@ -1,4 +1,4 @@
-import type { Category, Place } from '@/types';
+import type { Place } from '@/types';
 
 export type VisualCategory =
   | 'cultura'

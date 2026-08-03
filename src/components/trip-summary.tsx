@@ -6,12 +6,14 @@ import { RouteMap, type MapStop } from '@/components/route-map';
 import { Body, H2 } from '@/components/ui';
 import { Radius, Spacing } from '@/constants/theme';
 import { BUDGETS, CATEGORY_ICON, CATEGORY_LABEL, PACES } from '@/data/catalog';
+import { cityById } from '@/data/cities';
 import { placeById } from '@/data/places';
 import { useTheme } from '@/hooks/use-theme';
 import { categoryVisualFor } from '@/lib/category-style';
 import { fmtDate } from '@/lib/dates';
 import { fmtDist, legBetween, minToHHMM } from '@/lib/geo';
 import { tripStats } from '@/lib/generate';
+import { useStore } from '@/store/useStore';
 import type { Day, Place, Trip } from '@/types';
 
 type Props = {
@@ -31,6 +33,14 @@ const GROUP_LABEL = {
   trabajo: 'viaje de trabajo',
   otro: 'viaje en grupo',
 } as const;
+
+const INTERCITY_MODES = [
+  { id: 'train', label: 'Tren', icon: 'train-outline' },
+  { id: 'flight', label: 'Avión', icon: 'airplane-outline' },
+  { id: 'bus', label: 'Bus', icon: 'bus-outline' },
+  { id: 'car', label: 'Auto', icon: 'car-outline' },
+  { id: 'ferry', label: 'Ferry', icon: 'boat-outline' },
+] as const;
 
 function humanList(values: string[]) {
   if (values.length <= 1) return values[0] ?? '';
@@ -53,7 +63,12 @@ export function TripSummary({
   onRegenerate,
 }: Props) {
   const t = useTheme();
+  const updateIntercityLeg = useStore((state) => state.updateIntercityLeg);
   const stats = tripStats(trip.days);
+  const destinations = trip.destinations?.length
+    ? trip.destinations.slice().sort((a, b) => a.order - b.order)
+    : [{ cityId: trip.cityId, cityName: trip.cityName, country: trip.country, days: trip.days.length, order: 0 }];
+  const destinationNames = destinations.map((destination) => destination.cityName);
   const activities = trip.days.flatMap((day) => day.activities);
   const plannedPlaces = activities
     .map((activity) => placeById(activity.placeId))
@@ -117,10 +132,10 @@ export function TripSummary({
         <View style={styles.briefHeading}>
           <View style={styles.briefCopy}>
             <Body style={styles.briefTitle}>
-              {stats.days} {stats.days === 1 ? 'día' : 'días'} para descubrir {trip.cityName}
+              {stats.days} {stats.days === 1 ? 'día' : 'días'} para {destinations.length > 1 ? `conectar ${destinations.length} ciudades` : `descubrir ${trip.cityName}`}
             </Body>
             <Body style={styles.briefText}>
-              Priorizamos {planFocus || 'lo mejor de la ciudad'} y sumamos clásicos que vale la pena conocer. El recorrido está ordenado por zonas para aprovechar el tiempo sin cruzar la ciudad de más.
+              Priorizamos {planFocus || 'lo mejor de cada destino'} y sumamos clásicos que vale la pena conocer. {destinations.length > 1 ? `La ruta sigue ${humanList(destinationNames)} y separa cada ciudad en jornadas claras.` : 'El recorrido está ordenado por zonas para aprovechar el tiempo sin cruzar la ciudad de más.'}
             </Body>
           </View>
           <View style={styles.briefMark}>
@@ -155,6 +170,63 @@ export function TripSummary({
           </Pressable>
         </View>
       </View>
+
+      {destinations.length > 1 && (
+        <View style={styles.section}>
+          <View style={styles.sectionHeading}>
+            <View style={{ flex: 1 }}>
+              <H2>Entre una ciudad y la siguiente</H2>
+              <Body muted style={styles.sectionDescription}>Elegí cómo pensás moverte ahora o dejalo pendiente para completarlo cuando tengas la reserva.</Body>
+            </View>
+            <View style={[styles.fitBadge, { backgroundColor: t.secondarySoft }]}>
+              <Ionicons name="trail-sign-outline" size={16} color={t.secondary} />
+              <Body style={{ color: t.secondary, fontSize: 12, fontWeight: '800' }}>{destinations.length - 1} tramos</Body>
+            </View>
+          </View>
+          <View style={[styles.intercityRoute, { backgroundColor: t.surface, borderColor: t.border }]}>
+            {(trip.intercityLegs ?? []).map((leg, index) => {
+              const from = cityById(leg.fromCityId);
+              const to = cityById(leg.toCityId);
+              return (
+                <View key={leg.id} style={styles.intercityLeg}>
+                  <View style={styles.intercityHeading}>
+                    <View style={[styles.intercityNumber, { backgroundColor: t.secondary }]}><Body style={styles.intercityNumberText}>{index + 1}</Body></View>
+                    <View style={{ flex: 1 }}>
+                      <Body style={{ fontWeight: '900' }}>{from?.name ?? 'Origen'} → {to?.name ?? 'Destino'}</Body>
+                      <Body muted style={{ fontSize: 11 }}>{leg.status === 'confirmed' ? 'Medio definido · podés cambiarlo' : 'Traslado pendiente de definir'}</Body>
+                    </View>
+                  </View>
+                  <View style={styles.intercityModes}>
+                    {INTERCITY_MODES.map((mode) => {
+                      const selected = leg.mode === mode.id;
+                      return (
+                        <Pressable
+                          key={mode.id}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected }}
+                          accessibilityLabel={`${mode.label} de ${from?.name} a ${to?.name}`}
+                          onPress={() => updateIntercityLeg(trip.id, leg.id, { mode: mode.id, status: 'confirmed' })}
+                          style={[styles.intercityMode, { backgroundColor: selected ? t.secondarySoft : t.backgroundElement }]}>
+                          <Ionicons name={mode.icon} size={16} color={selected ? t.secondary : t.textSecondary} />
+                          <Body style={{ color: selected ? t.secondary : t.textSecondary, fontSize: 11, fontWeight: '800' }}>{mode.label}</Body>
+                        </Pressable>
+                      );
+                    })}
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Definir después el traslado de ${from?.name} a ${to?.name}`}
+                      onPress={() => updateIntercityLeg(trip.id, leg.id, { mode: 'unknown', status: 'pending' })}
+                      style={[styles.intercityMode, { backgroundColor: leg.mode === 'unknown' ? t.primarySoft : t.backgroundElement }]}>
+                      <Ionicons name="time-outline" size={16} color={leg.mode === 'unknown' ? t.primaryStrong : t.textSecondary} />
+                      <Body style={{ color: leg.mode === 'unknown' ? t.primaryStrong : t.textSecondary, fontSize: 11, fontWeight: '800' }}>Después</Body>
+                    </Pressable>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      )}
 
       <View style={styles.section}>
         <View style={styles.sectionHeading}>
@@ -319,6 +391,7 @@ function SummaryDay({ day, index, onPress }: { day: Day; index: number; onPress:
           <View style={[styles.dayNumber, { backgroundColor: visual?.soft ?? t.primarySoft }]}>
             <Body style={{ color: visual?.color ?? t.primaryStrong, fontSize: 12, fontWeight: '900' }}>D{index + 1}</Body>
           </View>
+          {day.cityName && <Body style={{ color: t.secondary, fontSize: 11, fontWeight: '900' }}>{day.cityName}</Body>}
           <Body muted style={{ fontSize: 12 }}>{fmtDate(day.date)}</Body>
         </View>
         <Body numberOfLines={1} style={styles.dayTitle}>{day.zone || 'Día libre para improvisar'}</Body>
@@ -397,6 +470,13 @@ const styles = StyleSheet.create({
   sectionHeading: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
   sectionDescription: { marginTop: 3, fontSize: 13, lineHeight: 19 },
   fitBadge: { minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: Radius.pill, paddingHorizontal: 11 },
+  intercityRoute: { borderWidth: 1, borderRadius: Radius.md, paddingHorizontal: Spacing.three },
+  intercityLeg: { gap: 10, paddingVertical: 14 },
+  intercityHeading: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  intercityNumber: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  intercityNumberText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900' },
+  intercityModes: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, paddingLeft: 38 },
+  intercityMode: { minHeight: 38, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, borderRadius: Radius.pill },
   interestList: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
   interestChip: { minHeight: 38, maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderRadius: Radius.pill, paddingHorizontal: 11 },
   profileLine: { fontSize: 12, lineHeight: 18 },

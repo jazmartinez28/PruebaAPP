@@ -32,6 +32,11 @@ export default function GenerandoScreen() {
   const [stage, setStage] = useState(0);
   const done = useRef(false);
   const city = draft.cityId ? cityById(draft.cityId) : undefined;
+  const destinations = draft.destinations?.length
+    ? draft.destinations.slice().sort((a, b) => a.order - b.order)
+    : draft.cityId
+      ? [{ cityId: draft.cityId, cityName: city?.name ?? '', country: city?.country ?? '', days: 1, order: 0 }]
+      : [];
 
   useEffect(() => {
     const accommodationComplete = Boolean(draft.accommodationChoice) &&
@@ -46,10 +51,10 @@ export default function GenerandoScreen() {
       setStage(0);
       await wait(350);
       setStage(1);
-      await loadCityCatalog(draft.cityId!);
-      if (draft.endDate) {
-        await loadTripEvents(draft.cityId!, draft.startDate!, draft.endDate);
-      }
+      await Promise.all(destinations.map((destination) => loadCityCatalog(destination.cityId)));
+      if (draft.endDate) await Promise.all(
+        destinations.map((destination) => loadTripEvents(destination.cityId, draft.startDate!, draft.endDate!)),
+      );
       for (let index = 2; index < STAGES.length; index++) {
         if (cancelled) return;
         setStage(index);
@@ -83,7 +88,11 @@ export default function GenerandoScreen() {
         <View style={styles.iconWrap}>
           <Ionicons name="map-outline" size={52} color="#FFFFFF" />
         </View>
-        <H1 style={{ color: '#fff', textAlign: 'center' }}>Armando tu viaje a {city?.name ?? 'destino'}…</H1>
+        <H1 style={{ color: '#fff', textAlign: 'center' }}>
+          {destinations.length > 1
+            ? `Conectando ${destinations.length} ciudades…`
+            : `Armando tu viaje a ${city?.name ?? 'destino'}…`}
+        </H1>
         <Body style={styles.promise}>Conectamos cada elección en una ruta que funcione de verdad.</Body>
         <View style={styles.routeCard}>
           <JourneyRoute dark labels={['Tu base', 'Mañana', 'Tarde', 'Regreso']} />

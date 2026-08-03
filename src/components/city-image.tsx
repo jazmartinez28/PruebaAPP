@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { StyleSheet, View, type ViewStyle } from 'react-native';
+import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import type { City } from '@/data/cities';
 
@@ -15,7 +15,7 @@ export function CityImage({
   children,
 }: {
   city?: City;
-  style?: ViewStyle | ViewStyle[];
+  style?: StyleProp<ViewStyle>;
   scrim?: number;
   children?: React.ReactNode;
 }) {
