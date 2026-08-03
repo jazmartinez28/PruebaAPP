@@ -427,6 +427,7 @@ export const useStore = create<State>()(
 
       regenerate: (tripId) =>
         set((s) => ({
+          _undo: snapOf(s, tripId),
           trips: s.trips.map((t) =>
             t.id === tripId
               ? touch({ ...t, days: generateItinerary({ ...t, cityId: t.cityId } as Draft) })

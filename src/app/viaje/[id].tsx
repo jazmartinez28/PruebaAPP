@@ -11,6 +11,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PackingList } from '@/components/packing-list';
 import { PlaceImage } from '@/components/place-image';
 import { Sheet } from '@/components/sheet';
+import { TripSummary } from '@/components/trip-summary';
 import { AccommodationSheet, TicketEditorSheet, TransportSheet } from '@/components/trip-tools';
 import { Body, Button, Card, Chip, H2, Label } from '@/components/ui';
 import { REMOTE_CONFIG } from '@/constants/config';
@@ -75,10 +76,12 @@ export default function TripScreen() {
   const [editDayStart, setEditDayStart] = useState<number | null>(null);
   const [editHotel, setEditHotel] = useState(action === 'hotel');
   const [pendingDeleteAct, setPendingDeleteAct] = useState<Activity | null>(null);
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const [confirmTripDelete, setConfirmTripDelete] = useState(false);
   const [tripActions, setTripActions] = useState(false);
   const [toast, setToast] = useState<{ msg: string; undo?: boolean } | null>(null);
   const removeActivity = useStore((s) => s.removeActivity);
+  const regenerate = useStore((s) => s.regenerate);
   const deleteTrip = useStore((s) => s.deleteTrip);
   const loadCityCatalog = useStore((s) => s.loadCityCatalog);
   const loadTripEvents = useStore((s) => s.loadTripEvents);
@@ -174,11 +177,13 @@ export default function TripScreen() {
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={[styles.tripContent, { paddingHorizontal: width >= 760 ? Spacing.five : Spacing.three }]}>
         {tab === 'resumen' && (
-          <ResumenTab
+          <TripSummary
             trip={trip}
             onOpenDay={(d) => { setDay(d); setTab('itinerario'); }}
+            onOpenMap={() => setTab('mapa')}
             onEditHotel={() => setEditHotel(true)}
             onOpenTickets={() => setTab('tickets')}
+            onRegenerate={() => setConfirmRegenerate(true)}
           />
         )}
         {tab === 'itinerario' && (
@@ -318,6 +323,20 @@ export default function TripScreen() {
 
       {/* Confirmación: eliminar viaje completo */}
       <ConfirmDialog
+        visible={confirmRegenerate}
+        icon="sparkles"
+        title="¿Reoptimizar con tus preferencias?"
+        message="Volveremos a organizar los días usando tus intereses, ritmo, presupuesto, imprescindibles y alojamiento. Se reemplazará el orden actual, pero tus tickets y la valija seguirán guardados."
+        confirmLabel="Sí, reoptimizar"
+        onCancel={() => setConfirmRegenerate(false)}
+        onConfirm={() => {
+          setConfirmRegenerate(false);
+          regenerate(trip.id);
+          showToast('Itinerario reoptimizado con tus preferencias', true);
+        }}
+      />
+
+      <ConfirmDialog
         visible={confirmTripDelete}
         destructive
         icon="trash"
@@ -368,157 +387,6 @@ function UtilitySwitcher({
   );
 }
 
-/* ============================= Resumen ============================= */
-
-function ResumenTab({
-  trip,
-  onOpenDay,
-  onEditHotel,
-  onOpenTickets,
-}: {
-  trip: Trip;
-  onOpenDay: (d: number) => void;
-  onEditHotel: () => void;
-  onOpenTickets: () => void;
-}) {
-  const t = useTheme();
-  const stats = tripStats(trip.days);
-
-  // stats calculadas
-  let totalMeters = 0;
-  let bookings = 0;
-  const allStops: MapStop[] = [];
-  let idx = 0;
-  trip.days.forEach((d, di) => {
-    d.activities.forEach((a, ai) => {
-      const p = placeById(a.placeId);
-      if (!p) return;
-      idx++;
-      allStops.push({ id: a.id, lat: p.lat, lng: p.lng, name: p.name, index: idx, color: categoryVisualFor(p).color });
-      if (p.needsBooking) bookings++;
-      if (ai < d.activities.length - 1) {
-        const np = placeById(d.activities[ai + 1].placeId);
-        if (np) totalMeters += legBetween(p, np).meters;
-      }
-    });
-  });
-
-  const acc = trip.accommodation;
-
-  return (
-    <>
-      <Card style={{ padding: 0, overflow: 'hidden' }}>
-        <RouteMap stops={allStops} accommodation={acc} height={220} />
-      </Card>
-
-      <View style={styles.statGrid}>
-        <StatBox icon="today" label="Días" value={String(stats.days)} />
-        <StatBox icon="flag" label="Actividades" value={String(stats.activities)} />
-        <StatBox icon="git-network" label="Zonas" value={String(stats.zones)} />
-        <StatBox icon="walk" label="Recorrido" value={fmtDist(totalMeters)} />
-      </View>
-
-      <View style={styles.tripTools}>
-        <Pressable onPress={onEditHotel} style={({ pressed }) => [styles.tripTool, pressed && { opacity: 0.75 }]}>
-          <View style={[styles.tripToolIcon, { backgroundColor: t.secondarySoft }]}>
-            <Ionicons name="bed-outline" size={21} color={t.secondary} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Body style={{ fontWeight: '800' }}>{acc ? 'Base del viaje' : 'Agregar alojamiento'}</Body>
-            <Body muted numberOfLines={1} style={{ fontSize: 12 }}>
-              {acc?.address ?? acc?.name ?? 'Mejora rutas y horarios de salida'}
-            </Body>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={t.textSecondary} />
-        </Pressable>
-        <Pressable onPress={onOpenTickets} style={({ pressed }) => [styles.tripTool, pressed && { opacity: 0.75 }]}>
-          <View style={[styles.tripToolIcon, { backgroundColor: t.primarySoft }]}>
-            <Ionicons name="ticket-outline" size={21} color={t.primary} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Body style={{ fontWeight: '800' }}>Tickets y reservas</Body>
-            <Body muted style={{ fontSize: 12 }}>
-              {(trip.tickets ?? []).length
-                ? `${trip.tickets.length} guardados para este viaje`
-                : 'Guardalos por actividad y encontralos rápido'}
-            </Body>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={t.textSecondary} />
-        </Pressable>
-      </View>
-
-      {(trip.arrivalTime != null || trip.departureTime != null) && (
-        <Card style={styles.logisticsCard}>
-          <View style={styles.logisticsHeading}>
-            <View style={[styles.tripToolIcon, { backgroundColor: t.secondarySoft }]}>
-              <Ionicons name="navigate-outline" size={20} color={t.secondary} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Body style={{ fontWeight: '900' }}>Llegada y salida protegidas</Body>
-              <Body muted style={{ fontSize: 12 }}>El plan deja margen para equipaje y traslados.</Body>
-            </View>
-          </View>
-          {trip.arrivalTime != null && (
-            <InfoLine
-              icon="log-in-outline"
-              label="Llegada"
-              value={`${minToHHMM(trip.arrivalTime)} · ${trip.arrivalPlace || 'Punto de llegada'} · ${trip.arrivalBufferMin ?? 45} min de margen`}
-            />
-          )}
-          {trip.departureTime != null && (
-            <InfoLine
-              icon="log-out-outline"
-              label="Salida"
-              value={`${minToHHMM(trip.departureTime)} · ${trip.departurePlace || 'Punto de salida'} · llegar ${trip.departureLeadMin ?? 120} min antes`}
-            />
-          )}
-        </Card>
-      )}
-
-      <View style={{ gap: Spacing.two }}>
-        <H2>Zonas por día</H2>
-        {trip.days.map((d, i) => (
-          <Pressable key={i} onPress={() => onOpenDay(i)}>
-            <Card style={styles.zoneRow}>
-              <View style={[styles.dayBadge, { backgroundColor: t.primarySoft }]}>
-                <Body style={{ color: t.primaryStrong, fontWeight: '800' }}>{i + 1}</Body>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Body style={{ fontWeight: '700' }}>{d.zone || 'Día libre'}</Body>
-                <Body muted style={{ fontSize: 13 }}>
-                  {fmtDate(d.date)} · {d.activities.length} actividades
-                </Body>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={t.textSecondary} />
-            </Card>
-          </Pressable>
-        ))}
-      </View>
-
-      {(bookings > 0 || !acc) && (
-        <View style={{ gap: Spacing.two }}>
-          <H2>Para tener en cuenta</H2>
-          {bookings > 0 && (
-            <Card style={[styles.alert, { borderColor: t.warning }]}>
-              <Ionicons name="bookmark" size={20} color={t.warning} />
-              <Body style={{ flex: 1 }}>
-                {bookings} {bookings === 1 ? 'lugar requiere' : 'lugares requieren'} reserva anticipada.
-              </Body>
-            </Card>
-          )}
-          {!acc && (
-            <Card style={[styles.alert, { borderColor: t.border }]}>
-              <Ionicons name="bed" size={20} color={t.textSecondary} />
-              <Body style={{ flex: 1 }}>Todavía no cargaste tu alojamiento. Lo podés agregar cuando lo tengas.</Body>
-            </Card>
-          )}
-        </View>
-      )}
-    </>
-  );
-}
-
-/* ============================ Itinerario ============================ */
 
 function ItinerarioTab({
   trip,
@@ -1829,17 +1697,6 @@ function IconCircle({ icon, onPress, label }: { icon: any; onPress: () => void; 
   );
 }
 
-function StatBox({ icon, label, value }: { icon: any; label: string; value: string }) {
-  const t = useTheme();
-  return (
-    <Card style={styles.statBox}>
-      <Ionicons name={icon} size={18} color={t.primary} />
-      <Body style={{ fontWeight: '800', fontSize: 16 }}>{value}</Body>
-      <Body muted style={{ fontSize: 11 }}>{label}</Body>
-    </Card>
-  );
-}
-
 function MiniStat({ icon, text }: { icon: any; text: string }) {
   const t = useTheme();
   return (
@@ -1898,27 +1755,10 @@ const styles = StyleSheet.create({
   tabsContent: { width: '100%', height: 53, flexDirection: 'row', alignItems: 'stretch', paddingHorizontal: Spacing.two },
   tab: { flex: 1, height: 53, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
   tabInd: { position: 'absolute', bottom: 0, height: 3, width: 28, borderRadius: 2 },
-  statGrid: { flexDirection: 'row', gap: Spacing.two, flexWrap: 'wrap' },
-  statBox: { flexGrow: 1, flexBasis: '22%', alignItems: 'center', gap: 3, paddingVertical: Spacing.three },
-  zoneRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
   dayBadge: { width: 36, height: 36, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
   dayHeadingRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   dayStartButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, borderRadius: Radius.md, borderWidth: 1 },
   timePresets: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  alert: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, borderWidth: 1.5 },
-  tripTools: { gap: Spacing.two },
-  logisticsCard: { gap: Spacing.two },
-  logisticsHeading: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three, marginBottom: 2 },
-  tripTool: {
-    minHeight: 62,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingHorizontal: Spacing.three,
-    borderWidth: 1,
-    borderRadius: Radius.md,
-  },
-  tripToolIcon: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   tripAction: { minHeight: 70, flexDirection: 'row', alignItems: 'center', gap: Spacing.three, padding: Spacing.three, borderRadius: Radius.md },
   tripActionIcon: { width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   tripActionDivider: { height: 1, marginVertical: Spacing.one },

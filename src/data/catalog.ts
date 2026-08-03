@@ -33,9 +33,9 @@ export const CATEGORY_ICON: Record<Category, IonName> = INTERESTS.reduce(
 );
 
 export const PACES: { id: Pace; label: string; desc: string; icon: IonName; perDay: number }[] = [
-  { id: 'tranquilo', label: 'Tranquilo', desc: 'Menos actividades y más tiempo libre.', icon: 'cafe', perDay: 3 },
-  { id: 'equilibrado', label: 'Equilibrado', desc: 'Recorrido completo sin correr.', icon: 'walk', perDay: 4 },
-  { id: 'intenso', label: 'Intenso', desc: 'Más actividades y menos pausas.', icon: 'flash', perDay: 6 },
+  { id: 'tranquilo', label: 'Tranquilo', desc: 'Hasta 4 visitas, pausas amplias y tiempo para improvisar.', icon: 'cafe', perDay: 4 },
+  { id: 'equilibrado', label: 'Equilibrado', desc: 'Hasta 6 visitas bien conectadas, sin correr.', icon: 'walk', perDay: 6 },
+  { id: 'intenso', label: 'Intenso', desc: 'Hasta 8 visitas y jornadas largas para aprovechar la ciudad.', icon: 'flash', perDay: 8 },
 ];
 
 export const BUDGETS: { id: Budget; label: string; desc: string; includes: string; maxTier: PriceTier }[] = [

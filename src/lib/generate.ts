@@ -8,6 +8,7 @@ import type { Activity, Day, Draft, Place } from '@/types';
 const LUNCH_FROM = 12 * 60 + 30;
 const DINNER_MIN = 20 * 60;
 const DEFAULT_DAY_END = 22 * 60 + 30;
+const PACE_CADENCE_MIN = { tranquilo: 135, equilibrado: 105, intenso: 85 } as const;
 
 let counter = 0;
 const uid = () => `a${Date.now().toString(36)}${(counter++).toString(36)}`;
@@ -72,7 +73,7 @@ export function generateItinerary(draft: Draft): Day[] {
   const budgetMax = BUDGETS.find((b) => b.id === draft.budget)?.maxTier ?? 3;
   const pace = PACES.find((p) => p.id === draft.pace) ?? PACES[1];
   const perDay = pace.perDay;
-  const hasDinner = draft.pace !== 'tranquilo';
+  const wantsGastronomy = draft.interests.includes('gastronomia');
   const generalStart = draft.dayStartMin ?? DEFAULT_DAY_START;
 
   const dayStartFor = (index: number) => {
@@ -95,7 +96,10 @@ export function generateItinerary(draft: Draft): Day[] {
   const capacities = Array.from({ length: numDays }, (_, index) => {
     const available = Math.max(0, dayEndFor(index) - dayStartFor(index));
     if (available < 90) return 0;
-    return Math.min(perDay, Math.max(1, Math.floor((available - 60) / 105)));
+    const crossesLunch = dayStartFor(index) <= LUNCH_FROM && dayEndFor(index) >= LUNCH_FROM + 60;
+    const mealReserve = crossesLunch ? 75 : 0;
+    const cadence = PACE_CADENCE_MIN[draft.pace];
+    return Math.min(perDay, Math.max(1, Math.floor((available - mealReserve) / cadence)));
   });
 
   const removedIds = 'removedIds' in draft && Array.isArray(draft.removedIds) ? draft.removedIds : [];
@@ -109,14 +113,14 @@ export function generateItinerary(draft: Draft): Day[] {
   const meals = all.filter((p) => p.isMeal);
 
   const score = (p: Place): number => {
-    let s = p.rating * 8 + popularityOf(p) * 0.72;
+    let s = p.rating * 7 + popularityOf(p) * 0.82;
     const matches = p.categories.filter((c) => draft.interests.includes(c)).length;
-    s += matches * 12;
-    if (p.categories.includes('iconico')) s += 18;
-    if (p.kind === 'event') s += 14;
+    s += matches ? 42 + (matches - 1) * 20 : 0;
+    if (p.categories.includes('iconico')) s += 30;
+    if (p.kind === 'event') s += draft.interests.some((interest) => p.categories.includes(interest)) ? 18 : 5;
     s += intentAffinity(p, draft.travelIntentText);
     if (draft.mustSeeIds.includes(p.id)) s += 1000;
-    if (p.price > budgetMax) s -= 25;
+    if (p.price > budgetMax) s -= draft.budget === 'economico' ? 50 : 30;
     const groupSignals = {
       solo: ['local', 'fotografia', 'museos'],
       pareja: ['gastronomia', 'arte', 'arquitectura'],
@@ -126,7 +130,7 @@ export function generateItinerary(draft: Draft): Day[] {
       otro: [],
     } as const;
     const signals = draft.groupType ? groupSignals[draft.groupType] : [];
-    if (p.categories.some((category) => (signals as readonly string[]).includes(category))) s += 7;
+    if (p.categories.some((category) => (signals as readonly string[]).includes(category))) s += 9;
     if (draft.groupType === 'familia' && p.categories.includes('vidanocturna')) s -= 18;
     if ((draft.partySize ?? 1) >= 5 && p.kind === 'event') s -= 4; // disponibilidad grupal suele ser más difícil
     return s;
@@ -134,24 +138,56 @@ export function generateItinerary(draft: Draft): Day[] {
 
   const ranked: Weighted[] = sights.map((p) => ({ place: p, score: score(p) })).sort((a, b) => b.score - a.score);
 
-  // Selección de lugares (imprescindibles primero, luego por puntaje)
+  // Selección editorial: imprescindibles, intereses repartidos, clásicos y variedad.
   const need = capacities.reduce((total, capacity) => total + capacity, 0);
   const chosen: Place[] = [];
   const seen = new Set<string>();
+  const addChoice = (place: Place) => {
+    if (seen.has(place.id) || chosen.length >= need) return false;
+    chosen.push(place);
+    seen.add(place.id);
+    return true;
+  };
   for (const p of sights.filter((p) => draft.mustSeeIds.includes(p.id))) {
-    chosen.push(p);
-    seen.add(p.id);
+    addChoice(p);
   }
-  for (const { place } of ranked) {
-    if (chosen.length >= need) break;
-    if (!seen.has(place.id)) {
-      chosen.push(place);
-      seen.add(place.id);
+
+  const personalizedTarget = Math.min(
+    Math.max(0, need - chosen.length),
+    Math.max(draft.interests.length, Math.round(need * 0.65)),
+  );
+  let personalizedAdded = 0;
+  let foundPersonalized = true;
+  while (personalizedAdded < personalizedTarget && foundPersonalized) {
+    foundPersonalized = false;
+    for (const interest of draft.interests) {
+      if (personalizedAdded >= personalizedTarget) break;
+      const candidate = ranked.find(({ place }) => !seen.has(place.id) && place.categories.includes(interest));
+      if (candidate && addChoice(candidate.place)) {
+        personalizedAdded++;
+        foundPersonalized = true;
+      }
     }
   }
 
+  const essentialTarget = Math.min(need, Math.max(1, Math.ceil(need * 0.3)));
+  let essentials = chosen.filter(
+    (place) => place.categories.includes('iconico') || popularityOf(place) >= 82,
+  ).length;
+  for (const { place } of ranked) {
+    if (chosen.length >= need || essentials >= essentialTarget) break;
+    if (
+      (place.categories.includes('iconico') || popularityOf(place) >= 82) &&
+      addChoice(place)
+    ) essentials++;
+  }
+  for (const { place } of ranked) {
+    if (chosen.length >= need) break;
+    addChoice(place);
+  }
+
   // Agrupar por cercanía en días. Los eventos quedan fijados a su fecha real.
-  const remaining = [...chosen];
+  const remaining = [...chosen].sort((a, b) => score(b) - score(a));
   const groups: Place[][] = Array.from({ length: numDays }, () => []);
   for (let index = remaining.length - 1; index >= 0; index--) {
     const event = remaining[index];
@@ -183,12 +219,19 @@ export function generateItinerary(draft: Draft): Day[] {
   }
 
   const usedMeals = new Set<string>();
-  const pickMeal = (near: Place): Place | null => {
+  const pickMeal = (near: Place, moment: 'lunch' | 'dinner'): Place | null => {
     const pool = meals
       .filter((m) => !usedMeals.has(m.id))
-      .map((m) => ({ m, d: distanceM(m, near), ok: m.price <= budgetMax }))
-      .sort((a, b) => Number(b.ok) - Number(a.ok) || a.d - b.d);
-    const choice = pool[0]?.m ?? meals.find((m) => !usedMeals.has(m.id)) ?? null;
+      .map((m) => {
+        const distance = distanceM(m, near);
+        const cafePenalty = moment === 'lunch' && /cafe|coffee|bakery|pasteler|helad/.test(normalized(`${m.name} ${m.desc}`)) ? 16 : 0;
+        const quality = m.rating * 13 + popularityOf(m) * 0.4;
+        const budgetFit = m.price <= budgetMax ? 24 : draft.budget === 'economico' ? -45 : -18;
+        const localBonus = m.categories.includes('local') ? 7 : 0;
+        return { m, value: quality + budgetFit + localBonus - Math.min(35, distance / 120) - cafePenalty };
+      })
+      .sort((a, b) => b.value - a.value);
+    const choice = pool[0]?.m ?? null;
     if (choice) usedMeals.add(choice.id);
     return choice;
   };
@@ -216,10 +259,15 @@ export function generateItinerary(draft: Draft): Day[] {
     const stops: Stop[] = [];
     let simT = dayStart;
     let lunchDone = false;
+    const crossesLunch = dayStart <= LUNCH_FROM && dayEnd >= LUNCH_FROM + 60;
+    const hasDinner =
+      dayEnd >= DINNER_MIN + 60 &&
+      ((wantsGastronomy && draft.pace !== 'tranquilo') ||
+        (draft.pace === 'intenso' && draft.interests.includes('vidanocturna')));
     for (let i = 0; i < ordered.length; i++) {
       const p = ordered[i];
-      if (!lunchDone && simT >= LUNCH_FROM) {
-        const meal = pickMeal(p);
+      if (crossesLunch && !lunchDone && simT >= LUNCH_FROM) {
+        const meal = pickMeal(p, 'lunch');
         if (meal) {
           stops.push({ place: meal });
           simT += meal.durationMin + 12;
@@ -230,13 +278,13 @@ export function generateItinerary(draft: Draft): Day[] {
       simT += p.durationMin;
       if (i < ordered.length - 1) simT += legBetween(p, ordered[i + 1]).minutes;
     }
-    if (!lunchDone && ordered.length >= 2) {
+    if (crossesLunch && !lunchDone && ordered.length >= 2) {
       const at = Math.min(1, ordered.length - 1);
-      const meal = pickMeal(ordered[at]);
+      const meal = pickMeal(ordered[at], 'lunch');
       if (meal) stops.splice(at + 1, 0, { place: meal });
     }
     if (hasDinner) {
-      const meal = pickMeal(ordered[ordered.length - 1]);
+      const meal = pickMeal(ordered[ordered.length - 1], 'dinner');
       if (meal) stops.push({ place: meal, dinner: true });
     }
 
